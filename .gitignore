@@ -8,3 +8,18 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Data directories
+v/
+animes/
+database/
+extracted_frames/
+
+# Data files
+phashes.npy
+metadata.pkl
+*.mp4
+*.mkv
+*.avi
+*.png
+*.jpg
