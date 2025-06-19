@@ -6,6 +6,7 @@ import os
 import pickle
 import time
 from datetime import timedelta
+import psutil  # Para monitoramento de memória
 
 # === CONFIGURAÇÕES ===
 VIDEO_PATH = "OnePiece_S01E01.mp4"
@@ -53,6 +54,8 @@ def compute_phash_vector(frame):
 # === PROCESSA O VÍDEO ===
 def process_video(video_path, start_id=0):
     start_time = time.time()
+    print(f"Memória antes de abrir o vídeo: {update_max_memory():.2f} MB")
+    
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise Exception(f"Erro ao abrir o vídeo: {video_path}")
@@ -60,6 +63,8 @@ def process_video(video_path, start_id=0):
     fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     duration = int(total_frames // fps)
+
+    print(f"Memória após abrir o vídeo: {update_max_memory():.2f} MB")
 
     anime, season, episode = parse_video_filename(video_path) 
     vectors = []
@@ -107,23 +112,61 @@ def process_video(video_path, start_id=0):
                 "position": pos
             }
             current_id += 1
-            frames_processed += 1
-
+            frames_processed += 1  
     cap.release()
+    
+    # Monitoramento de memória final
+    print(f"\nProcessamento concluído.")
+    print(f"Frames processados: {frames_processed}/{total_expected_frames}")
+    print(f"Vetores gerados: {len(vectors)}")
+    print(f"Metadados gerados: {len(metadata)}")
+    print(f"Memória após processar todos os frames: {update_max_memory():.2f} MB")
+    
     return vectors, metadata
+
+# === FUNÇÕES PARA MONITORAMENTO DE MEMÓRIA ===
+def get_memory_usage():
+    """Retorna o uso de memória atual do processo em MB"""
+    process = psutil.Process(os.getpid())
+    mem_info = process.memory_info()
+    return mem_info.rss / 1024 / 1024  # Converte bytes para MB
+
+# Variável global para registrar uso máximo de memória
+max_memory = 0
+def update_max_memory():
+    """Atualiza e retorna o uso máximo de memória"""
+    global max_memory
+    current = get_memory_usage()
+    if current > max_memory:
+        max_memory = current
+    return current
 
 # === MAIN ===
 def main():
+    global max_memory
+    print(f"Memória inicial: {update_max_memory():.2f} MB")
+    
+    start_time = time.time()
     vectors, metadata = process_video(VIDEO_PATH)
-
+    
+    print(f"Memória após processar vídeo: {update_max_memory():.2f} MB")
+    
     # Salva os vetores
+    print("Salvando vetores...")
     np.save(OUTPUT_HASH_PATH, np.array(vectors, dtype=np.float32))
-
+    print(f"Memória após salvar vetores: {update_max_memory():.2f} MB")
+    
     # Salva os metadados
+    print("Salvando metadados...")
     with open(OUTPUT_META_PATH, "wb") as f:
         pickle.dump(metadata, f)
-
-    print(f"Salvos {len(vectors)} vetores e metadados em memória.")
+    
+    print(f"Salvos {len(vectors)} vetores e metadados em disco.")
+    print(f"Memória final: {update_max_memory():.2f} MB")
+    print(f"Pico de uso de memória: {max_memory:.2f} MB")
+    
+    processo_time = time.time() - start_time
+    print(f"Tempo total de execução: {timedelta(seconds=int(processo_time))}")
 
 if __name__ == "__main__":
     main()

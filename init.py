@@ -4,21 +4,47 @@ import faiss
 import cv2
 from PIL import Image
 import imagehash
+import os
+import psutil  # Para monitoramento de memória
+
+# Funções para monitoramento de memória
+def get_memory_usage():
+    """Retorna o uso de memória atual do processo em MB"""
+    process = psutil.Process(os.getpid())
+    mem_info = process.memory_info()
+    return mem_info.rss / 1024 / 1024  # Converte bytes para MB
+
+# Variável global para registrar uso máximo de memória
+max_memory = 0
+def update_max_memory():
+    """Atualiza e retorna o uso máximo de memória"""
+    global max_memory
+    current = get_memory_usage()
+    if current > max_memory:
+        max_memory = current
+    return current
 
 # Caminhos dos arquivos salvos
 PHASHES_PATH = "phashes.npy"
 METADATA_PATH = "metadata.pkl"
 
 # Carrega vetores e metadados
+print(f"Memória antes de carregar os dados: {update_max_memory():.2f} MB")
 vectors = np.load(PHASHES_PATH)
+print(f"Memória após carregar vetores: {update_max_memory():.2f} MB")
+
 with open(METADATA_PATH, "rb") as f:
     metadata = pickle.load(f)
+print(f"Memória após carregar metadados: {update_max_memory():.2f} MB")
 
 # Cria índice FAISS
+print("Criando índice FAISS...")
 base_index = faiss.IndexFlatL2(64)  # Índice base para similaridade L2
 index = faiss.IndexIDMap(base_index)  # Wrapper que permite IDs personalizados
 ids = np.array(list(metadata.keys()), dtype=np.int64)  # Certifica que os IDs são int64
+print(f"Memória antes de adicionar vetores ao índice: {update_max_memory():.2f} MB")
 index.add_with_ids(vectors, ids)
+print(f"Memória após criar índice FAISS: {update_max_memory():.2f} MB")
 
 # === Converte frame (ou imagem) para vetor pHash ===
 def compute_phash_vector(frame_bgr):
@@ -33,6 +59,7 @@ def buscar_frame_similar(frame_bgr, k=1):
     from datetime import timedelta
     
     print("\n=== Iniciando busca por similaridade ===")
+    print(f"Memória antes da busca: {update_max_memory():.2f} MB")
     
     # Tempo para processamento do frame
     t_inicio_proc = time.time()
@@ -40,6 +67,7 @@ def buscar_frame_similar(frame_bgr, k=1):
     t_fim_proc = time.time()
     tempo_proc = t_fim_proc - t_inicio_proc
     print(f"Tempo para processar o frame: {tempo_proc:.4f}s")
+    print(f"Memória após processar o frame: {update_max_memory():.2f} MB")
     
     # Tempo para busca no índice FAISS
     t_inicio_busca = time.time()
@@ -47,6 +75,7 @@ def buscar_frame_similar(frame_bgr, k=1):
     t_fim_busca = time.time()
     tempo_busca = t_fim_busca - t_inicio_busca
     print(f"Tempo para busca no índice FAISS: {tempo_busca:.4f}s")
+    print(f"Memória após busca no FAISS: {update_max_memory():.2f} MB")
     
     # Tempo para montar resultados
     t_inicio_result = time.time()
@@ -81,6 +110,7 @@ if __name__ == "__main__":
     # Informações sobre os dados carregados
     print(f"Total de vetores no banco de dados: {len(vectors)}")
     print(f"Total de metadados no banco de dados: {len(metadata)}")
+    print(f"Memória atual: {update_max_memory():.2f} MB")
     
     # Carrega um frame de teste de uma imagem ou vídeo
     print("\nCarregando imagem para teste...")
@@ -114,9 +144,10 @@ if __name__ == "__main__":
                 position = r['metadata'].get('position', '')
                 print(f"Encontrado em: {anime} - Temporada {season} Episódio {episode}")
                 print(f"Tempo: {second//60}:{second%60:02d} ({position})")
-    
-    # Tempo total de execução
+      # Tempo total de execução
     t_fim_total = time.time()
     tempo_total = t_fim_total - t_inicio_total
     print(f"\nTempo total de execução: {tempo_total:.4f}s ({timedelta(seconds=int(tempo_total))})")
+    print(f"Memória final: {update_max_memory():.2f} MB")
+    print(f"Pico de uso de memória: {max_memory:.2f} MB")
     print("=== Teste concluído ===\n")
