@@ -1,13 +1,20 @@
 # Python-generated files
 __pycache__/
 *.py[oc]
+*.pyo
+*.pyc
 build/
 dist/
 wheels/
 *.egg-info
+.pytest_cache/
+.coverage
 
 # Virtual environments
 .venv
+venv/
+env/
+ENV/
 
 # Data directories
 v/
@@ -18,8 +25,33 @@ extracted_frames/
 # Data files
 phashes.npy
 metadata.pkl
+checkpoint_*.npy
+checkpoint_*.pkl
+
+# Vídeo e imagens
 *.mp4
 *.mkv
 *.avi
+*.m4v
+*.mov
+*.webm
 *.png
 *.jpg
+*.jpeg
+*.gif
+
+# Logs e arquivos temporários
+*.log
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Locks e ambientes
+uv.lock
