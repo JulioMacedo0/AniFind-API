@@ -1,338 +1,275 @@
-import cv2
-import numpy as np
-from PIL import Image
-import imagehash
+# -*- coding: utf-8 -*-
 import os
-import pickle
+import re
 import time
 import glob
-import re
+import pickle
 from datetime import timedelta
-import psutil  # Para monitoramento de memória
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
+import cv2
+import numpy as np
+import psutil
+from PIL import Image
+import imagehash
 
 # === CONFIGURAÇÕES ===
-# Estrutura de diretórios recomendada:
-# BASE_DIR/
-# ├── AnimeNome1/
-# │   ├── Season01/
-# │   │   ├── AnimeNome1_S01E01.mp4
-# │   │   ├── AnimeNome1_S01E02.mp4
-# │   │   └── ...
-# │   ├── Season02/
-# │   │   └── ...
-# ├── AnimeNome2/
-# │   └── ...
+# Diretórios
+BASE_DIR = "animes"
+OUTPUT_DIR = "database"
 
-BASE_DIR = "animes"  # Diretório base onde os animes estão organizados
-OUTPUT_DIR = "database"  # Diretório onde serão salvos os arquivos de dados
+# Nomes dos arquivos de saída
 OUTPUT_HASH_PATH = os.path.join(OUTPUT_DIR, "phashes.npy")
 OUTPUT_META_PATH = os.path.join(OUTPUT_DIR, "metadata.pkl")
-FRAME_POSITIONS = ['start', 'middle', 'end']
-EXTENSIONS = ['.mp4', '.mkv', '.avi']  # Extensões de vídeo suportadas
 
-# === EXTRAI METADADOS DO NOME DO ARQUIVO E DIRETÓRIO ===
+# Parâmetros de processamento
+FRAME_POSITIONS = ['start', 'middle', 'end']
+EXTENSIONS = ['.mp4', '.mkv', '.avi']
+
+# Otimizações de Hardware e Processamento
+RESIZE_BEFORE_HASH = True
+RESIZE_DIM = (64, 64)
+MAX_PARALLEL_VIDEOS = 4
+LOG_INTERVAL_SECONDS = 60 # NOVO: Intervalo para reportar o progresso de um vídeo (em segundos)
+
+# Pré-compila os padrões de Regex para mais eficiência
+COMPILED_PATTERNS = [
+    re.compile(r'(.+?)[_\s-][Ss](\d+)[Ee](\d+)'),
+    re.compile(r'(.+?)[_\s-](\d+)x(\d+)'),
+    re.compile(r'(.+?)[_\s]\[?(\d+)[.\s](\d+)\]?'),
+    re.compile(r'\[.*?\]\s*(.+?)\s*-\s*(\d+)')
+]
+
+# === FUNÇÕES DE LOG E UTILITÁRIAS ===
+def log(message, flush=False): # MODIFICADO: Adicionado parâmetro 'flush'
+    """Imprime uma mensagem de log com timestamp."""
+    print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=flush) # MODIFICADO: Usa o flush
+
+def format_timedelta(seconds):
+    """Formata segundos para uma string H:M:S."""
+    if seconds is None:
+        return "N/A"
+    return str(timedelta(seconds=int(seconds)))
+
+def get_file_size_str(filepath):
+    """Retorna o tamanho de um arquivo em formato legível (KB, MB, GB)."""
+    if not os.path.exists(filepath):
+        return "N/A"
+    size_bytes = os.path.getsize(filepath)
+    if size_bytes < 1024:
+        return f"{size_bytes} Bytes"
+    elif size_bytes < 1024**2:
+        return f"{size_bytes/1024:.2f} KB"
+    elif size_bytes < 1024**3:
+        return f"{size_bytes/1024**2:.2f} MB"
+    else:
+        return f"{size_bytes/1024**3:.2f} GB"
+
+# === LÓGICA DE PROCESSAMENTO (EXECUTADA NOS WORKERS) ===
 def parse_video_path(filepath):
-    """
-    Extrai metadados (anime, temporada, episódio) do caminho do arquivo.
-    Tenta extrair informações tanto do nome do arquivo quanto da estrutura de diretórios.
-    
-    Formatos suportados:
-    - Por diretório: BASE_DIR/NomeAnime/SeasonXX/Arquivo.mp4
-    - Por nome de arquivo: NomeAnime_SXXEXX.mp4, NomeAnime - SXX EXX.mp4
-    """
-    filepath = os.path.normpath(filepath)
+    """Extrai metadados (anime, temporada, episódio) do caminho do arquivo."""
     filename = os.path.basename(filepath)
     name, _ = os.path.splitext(filename)
-    
-    # Primeiro, tenta extrair do nome do arquivo usando regex
-    # Padrões comuns de nomes de episódios
-    patterns = [
-        r'(.+)[_\s-][Ss](\d+)[Ee](\d+)',  # AnimeNome_S01E01, AnimeNome - S01E01
-        r'(.+)[_\s-](\d+)x(\d+)',         # AnimeNome_01x01, AnimeNome - 01x01
-        r'(.+)[_\s]\[?(\d+)[\.\s](\d+)\]?' # AnimeNome 01.01, AnimeNome [01.01]
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, name)
+
+    for pattern in COMPILED_PATTERNS:
+        match = pattern.search(name)
         if match:
-            anime = match.group(1).strip()
-            season = int(match.group(2))
-            episode = int(match.group(3))
-            return anime, season, episode
-    
-    # Se não conseguir extrair do nome, tenta pela estrutura de diretórios
-    parts = filepath.split(os.sep)
-    if len(parts) >= 3:
-        # Tenta encontrar temporada do diretório (ex: Season01, S01, etc)
-        season_dir = parts[-2]
-        season_match = re.search(r'[Ss](?:eason)?(\d+)', season_dir)
-        
-        if season_match:
-            season = int(season_match.group(1))
-            anime = parts[-3]  # O diretório pai é o nome do anime
-            
-            # Tenta extrair o número do episódio do nome do arquivo
-            ep_match = re.search(r'[Ee](?:pisode|p)?[\s\._-]*(\d+)', name)
-            if ep_match:
-                episode = int(ep_match.group(1))
+            groups = match.groups()
+            anime = groups[0].strip().replace('_', ' ')
+            if len(groups) == 3:
+                season = int(groups[1])
+                episode = int(groups[2])
                 return anime, season, episode
-    
-    # Se chegou aqui, não conseguiu extrair informações suficientes
-    raise ValueError(f"Não foi possível extrair metadados do caminho: {filepath}")
+            elif len(groups) == 2:
+                season = 1
+                episode = int(groups[1])
+                return anime, season, episode
 
-# === CONVERTE FRAME EM VETOR USANDO pHash ===
+    parts = os.path.normpath(filepath).split(os.sep)
+    if len(parts) >= 3:
+        anime = parts[-3]
+        season_dir = parts[-2]
+        season_match = re.search(r'[Ss](?:eason)?\s*(\d+)', season_dir)
+        season = int(season_match.group(1)) if season_match else 1
+        ep_match = re.search(r'[Ee](?:pisode|p)?[\s._-]*(\d+)', name)
+        if ep_match:
+            episode = int(ep_match.group(1))
+            return anime, season, episode
+
+    raise ValueError(f"Não foi possível extrair metadados de: {filepath}")
+
 def compute_phash_vector(frame):
-    img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))  # Converte para RGB
-    phash = imagehash.phash(img)
-    return np.array(phash.hash, dtype=np.float32).flatten()  # 64-dim (8x8)
-
-# === PROCESSA UM VÍDEO ===
-def process_video(video_path, start_id=0):
-    start_time = time.time()
-    print(f"Memória antes de abrir o vídeo: {update_max_memory():.2f} MB")
-    
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        print(f"ERRO: Não foi possível abrir o vídeo: {video_path}")
-        return [], {}
-
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    if total_frames <= 0:
-        print(f"ERRO: Vídeo vazio ou inválido: {video_path}")
-        return [], {}
+    """Calcula o pHash de um frame e retorna como um inteiro de 64 bits."""
+    if frame is None:
+        return None
         
-    duration = int(total_frames // fps)
+    if RESIZE_BEFORE_HASH:
+        frame = cv2.resize(frame, RESIZE_DIM, interpolation=cv2.INTER_AREA)
+        
+    img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    phash_obj = imagehash.phash(img)
+    
+    return np.packbits(phash_obj.hash.flatten()).view(np.uint64)[0]
 
-    print(f"Memória após abrir o vídeo: {update_max_memory():.2f} MB")
+def process_video(video_path):
+    """
+    Função executada por cada worker. Processa um único vídeo do início ao fim.
+    """
+    pid = os.getpid()
+    video_name = os.path.basename(video_path)
+    start_time = time.time()
+    
+    # Usamos flush=True aqui para garantir que a mensagem de início apareça imediatamente
+    log(f"PID {pid} | ▶️  Iniciando processamento de: {video_name}", flush=True) 
 
     try:
         anime, season, episode = parse_video_path(video_path)
     except ValueError as e:
-        print(f"ERRO: {e}")
-        return [], {}
-        
+        log(f"PID {pid} | ⚠️  AVISO: {e}", flush=True)
+        return video_path, [], {}
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        log(f"PID {pid} | ❌ ERRO: Não foi possível abrir o vídeo {video_name}", flush=True)
+        return video_path, [], {}
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    duration = int(total_frames / fps) if fps > 0 else 0
+    
+    if duration == 0:
+        log(f"PID {pid} | ⚠️  AVISO: Vídeo sem duração ou corrompido: {video_name}", flush=True)
+        cap.release()
+        return video_path, [], {}
+
+    log(f"PID {pid} | 🎬  Metadata: {anime} S{season:02d}E{episode:02d} ({duration}s)", flush=True)
+
     vectors = []
     metadata = {}
-    current_id = start_id
-    
-    print(f"Processando {anime} S{season}E{episode} ({duration}s)")
-    print(f"Total de frames no vídeo: {total_frames} | FPS: {fps:.2f}")
-    
-    progress_steps = max(1, duration // 20)  # Mostra progresso a cada 5%
-    frames_processed = 0
-    total_expected_frames = duration * len(FRAME_POSITIONS)
     
     for sec in range(duration):
-        if sec % progress_steps == 0 or sec == duration - 1:
-            elapsed = time.time() - start_time
-            percent_done = (sec / duration) * 100
-            eta = (elapsed / max(1, sec)) * (duration - sec) if sec > 0 else 0
-            print(f"Progresso: {percent_done:.1f}% | Tempo decorrido: {timedelta(seconds=int(elapsed))} | ETA: {timedelta(seconds=int(eta))}")
-        
-        for pos in FRAME_POSITIONS:
-            # Cálculo do índice do frame
-            if pos == 'start':
-                frame_index = int(sec * fps)
-            elif pos == 'middle':
-                frame_index = int((sec + 0.5) * fps)
-            elif pos == 'end':
-                frame_index = int((sec + 0.99) * fps)
+        # NOVO: Bloco para logar o progresso dentro do vídeo
+        if sec > 0 and sec % LOG_INTERVAL_SECONDS == 0:
+            progress_percent = (sec / duration) * 100
+            log(f"PID {pid} | ⏳ Progresso em '{video_name}': {sec}/{duration}s ({progress_percent:.1f}%)", flush=True)
 
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+        for pos_name in FRAME_POSITIONS:
+            if pos_name == 'start': offset = 0.1
+            elif pos_name == 'middle': offset = 0.5
+            else: offset = 0.9
+            
+            frame_pos_idx = int((sec + offset) * fps)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_pos_idx)
             ret, frame = cap.read()
-            if not ret:
-                print(f"Aviso: Não foi possível ler o frame em {sec}s, posição '{pos}'")
-                continue
 
-            # Usa o frame original (sem resize)
-            try:
-                vector = compute_phash_vector(frame)
-            except Exception as e:
-                print(f"Erro ao processar frame em {sec}s, posição '{pos}': {e}")
-                continue
-
-            vectors.append(vector)
-            metadata[current_id] = {
-                "anime": anime,
-                "season": season,
-                "episode": episode,
-                "second": sec,
-                "position": pos,
-                "filepath": video_path  # Adicionamos o caminho para referência
-            }
-            current_id += 1
-            frames_processed += 1  
+            if ret:
+                phash_vector = compute_phash_vector(frame)
+                if phash_vector is not None:
+                    frame_id = len(vectors) 
+                    vectors.append(phash_vector)
+                    metadata[frame_id] = {
+                        'anime': anime, 'season': season, 'episode': episode,
+                        'second': sec, 'position': pos_name, 'filepath': video_path
+                    }
+    
     cap.release()
     
-    # Monitoramento de memória final
-    print(f"\nProcessamento do vídeo concluído.")
-    print(f"Frames processados: {frames_processed}/{total_expected_frames}")
-    print(f"Vetores gerados: {len(vectors)}")
-    print(f"Metadados gerados: {len(metadata)}")
-    print(f"Memória após processar todos os frames: {update_max_memory():.2f} MB")
+    total_time = time.time() - start_time
+    frames_processed = len(vectors)
+    fps_processed = frames_processed / total_time if total_time > 0 else 0
     
-    return vectors, metadata
+    log(f"PID {pid} | ✅  Concluído: {video_name} | {frames_processed} hashes gerados em {format_timedelta(total_time)} ({fps_processed:.2f} frames/s)", flush=True)
+    
+    return video_path, vectors, metadata
 
-# === ENCONTRAR VÍDEOS RECURSIVAMENTE ===
-def find_videos(base_dir):
-    """Encontra todos os arquivos de vídeo em um diretório e suas subpastas"""
-    videos = []
-    for ext in EXTENSIONS:
-        videos.extend(glob.glob(os.path.join(base_dir, "**", f"*{ext}"), recursive=True))
-    return sorted(videos)
+# ... (O restante do script, a partir da função main(), permanece o mesmo) ...
 
-# === PROCESSA MÚLTIPLOS VÍDEOS ===
-def process_anime_collection(base_dir):
-    """Processa uma coleção de animes organizada em diretórios"""
-    all_videos = find_videos(base_dir)
+# === FUNÇÃO PRINCIPAL (ORQUESTRADOR) ===
+def main():
+    """Função principal que orquestra todo o processo."""
+    main_start_time = time.time()
+    log("🚀 INICIANDO GERAÇÃO DA BASE DE DADOS DE HASHES")
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    # 1. Encontrar todos os vídeos
+    log("📁 Buscando arquivos de vídeo...")
+    all_videos = [f for ext in EXTENSIONS for f in glob.glob(os.path.join(BASE_DIR, '**', f'*{ext}'), recursive=True)]
+    
+    if not all_videos:
+        log("❌ Nenhum vídeo encontrado. Verifique o diretório `BASE_DIR` e as extensões.")
+        return
+
     total_videos = len(all_videos)
-    
-    if total_videos == 0:
-        print(f"Nenhum vídeo encontrado em: {base_dir}")
-        return [], {}
-    
-    print(f"Encontrados {total_videos} vídeos para processamento")
-    
+    log(f"🔍 {total_videos} vídeos encontrados.")
+
+    # 2. Processar vídeos em paralelo
     all_vectors = []
     all_metadata = {}
-    current_id = 0
+    videos_processed_count = 0
+    current_global_id = 0
+
+    log(f"🛠️  Iniciando pool de processamento com {MAX_PARALLEL_VIDEOS} workers...")
     
-    for i, video_path in enumerate(all_videos):
-        print(f"===== Processando vídeo {i+1}/{total_videos} =====")
-        print(f"Arquivo: {video_path}")
+    process_times = []
+
+    with ProcessPoolExecutor(max_workers=MAX_PARALLEL_VIDEOS) as executor:
+        futures = {executor.submit(process_video, path): path for path in all_videos}
         
-        vectors, metadata = process_video(video_path, current_id)
-        
-        if vectors and metadata:
-            all_vectors.extend(vectors)
-            all_metadata.update(metadata)
-            current_id += len(vectors)
+        for future in as_completed(futures):
+            start_proc_time = time.time()
             
-            # Salva checkpoints para evitar perda de dados em caso de falhas
-            if (i + 1) % 5 == 0 or (i + 1) == total_videos:
-                print(f"\nSalvando checkpoint após {i+1}/{total_videos} vídeos...")
-                save_checkpoint(all_vectors, all_metadata, i+1)
-    
-    return all_vectors, all_metadata
+            processed_path, vectors, metadata = future.result()
+            
+            videos_processed_count += 1
+            
+            if vectors:
+                all_vectors.extend(vectors)
+                for local_id, meta_item in metadata.items():
+                    all_metadata[current_global_id] = meta_item
+                    current_global_id += 1
+            
+            end_proc_time = time.time()
+            # Usamos o tempo que o processo principal levou para processar o resultado, que é rápido
+            # mas ajuda a suavizar o ETA.
+            process_times.append(end_proc_time - start_proc_time)
+            avg_time_per_video = sum(process_times) / len(process_times)
+            videos_remaining = total_videos - videos_processed_count
+            eta_seconds = avg_time_per_video * videos_remaining
+            
+            progress = (videos_processed_count / total_videos) * 100
+            
+            # Este log principal continua como antes, mostrando o progresso geral
+            log(f"📊 Progresso Geral: {videos_processed_count}/{total_videos} ({progress:.2f}%) | "
+                f"Vídeo Recém-Concluído: {os.path.basename(processed_path)} | "
+                f"ETA: {format_timedelta(eta_seconds)}")
 
-# === SALVAR CHECKPOINT ===
-def save_checkpoint(vectors, metadata, num_videos):
-    """Salva os dados processados em um checkpoint temporário"""
-    # Cria diretório de saída se não existir
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    
-    checkpoint_hash = os.path.join(OUTPUT_DIR, f"checkpoint_{num_videos}_phashes.npy")
-    checkpoint_meta = os.path.join(OUTPUT_DIR, f"checkpoint_{num_videos}_metadata.pkl")
-    
-    np.save(checkpoint_hash, np.array(vectors, dtype=np.float32))
-    with open(checkpoint_meta, "wb") as f:
-        pickle.dump(metadata, f)
-    
-    print(f"Checkpoint salvo: {num_videos} vídeos, {len(vectors)} frames processados")
+    log("✅ Pool de processamento concluído.")
 
-# === FUNÇÕES PARA MONITORAMENTO DE MEMÓRIA ===
-def get_memory_usage():
-    """Retorna o uso de memória atual do processo em MB"""
+    # 3. Salvar os resultados
+    log("💾 Salvando arquivos finais...")
+    if all_vectors:
+        phashes_array = np.array(all_vectors, dtype=np.uint64)
+        np.save(OUTPUT_HASH_PATH, phashes_array)
+        log(f"  -> Hashes salvos em: {OUTPUT_HASH_PATH} ({get_file_size_str(OUTPUT_HASH_PATH)})")
+
+        with open(OUTPUT_META_PATH, 'wb') as f:
+            pickle.dump(all_metadata, f)
+        log(f"  -> Metadados salvos em: {OUTPUT_META_PATH} ({get_file_size_str(OUTPUT_META_PATH)})")
+    else:
+        log("⚠️ Nenhum vetor foi gerado. Nada a salvar.")
+
+    # 4. Resumo final
+    main_total_time = time.time() - main_start_time
+    log("\n" + "="*50)
+    log("🏁 RESUMO FINAL 🏁")
+    log(f"⏱️  Tempo Total de Execução: {format_timedelta(main_total_time)}")
+    log(f"📹 Vídeos Processados: {videos_processed_count}/{total_videos}")
+    log(f"🔢 Total de Hashes Gerados: {len(all_vectors)}")
     process = psutil.Process(os.getpid())
-    mem_info = process.memory_info()
-    return mem_info.rss / 1024 / 1024  # Converte bytes para MB
+    mem_usage = process.memory_info().rss / 1024 / 1024
+    log(f"🧠 Pico de Memória (Processo Principal): {mem_usage:.2f} MB")
+    log("="*50)
 
-# Variável global para registrar uso máximo de memória
-max_memory = 0
-def update_max_memory():
-    """Atualiza e retorna o uso máximo de memória"""
-    global max_memory
-    current = get_memory_usage()
-    if current > max_memory:
-        max_memory = current
-    return current
-
-# === MAIN ===
-def main():
-    global max_memory
-    
-    # Cria o diretório de saída se não existir
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    
-    print("=" * 60)
-    print("PROCESSADOR DE COLEÇÃO DE ANIMES PARA FRAMES PHASH")
-    print("=" * 60)
-    print(f"Diretório base: {BASE_DIR}")
-    print(f"Diretório de saída: {OUTPUT_DIR}")
-    print(f"Memória inicial: {update_max_memory():.2f} MB")
-    
-    # Verifica se o diretório base existe
-    if not os.path.isdir(BASE_DIR):
-        print(f"ERRO: Diretório base não encontrado: {BASE_DIR}")
-        print("Criando diretório de exemplo...")
-        os.makedirs(BASE_DIR, exist_ok=True)
-        print(f"Por favor, coloque seus animes em '{BASE_DIR}' seguindo a estrutura recomendada:")
-        print("BASE_DIR/")
-        print("├── AnimeNome1/")
-        print("│   ├── Season01/")
-        print("│   │   ├── AnimeNome1_S01E01.mp4")
-        print("│   │   ├── AnimeNome1_S01E02.mp4")
-        print("│   │   └── ...")
-        print("└── AnimeNome2/")
-        print("    └── ...")
-        return
-    
-    start_time = time.time()
-    
-    # Processa todos os vídeos na coleção
-    vectors, metadata = process_anime_collection(BASE_DIR)
-    
-    if not vectors:
-        print("Nenhum vetor foi gerado. Verifique os erros acima.")
-        return
-    
-    print(f"\nMemória após processar coleção: {update_max_memory():.2f} MB")
-    
-    # Salva os vetores finais
-    print(f"Salvando {len(vectors)} vetores no arquivo final...")
-    np.save(OUTPUT_HASH_PATH, np.array(vectors, dtype=np.float32))
-    print(f"Memória após salvar vetores: {update_max_memory():.2f} MB")
-    
-    # Salva os metadados finais
-    print(f"Salvando metadados de {len(metadata)} frames no arquivo final...")
-    with open(OUTPUT_META_PATH, "wb") as f:
-        pickle.dump(metadata, f)
-    
-    # Gera um resumo da coleção processada
-    anime_stats = {}
-    for meta in metadata.values():
-        anime = meta['anime']
-        season = meta['season']
-        episode = meta['episode']
-        
-        if anime not in anime_stats:
-            anime_stats[anime] = {}
-        
-        if season not in anime_stats[anime]:
-            anime_stats[anime][season] = set()
-            
-        anime_stats[anime][season].add(episode)
-    
-    print("\n" + "=" * 60)
-    print("RESUMO DA COLEÇÃO PROCESSADA")
-    print("=" * 60)
-    for anime, seasons in anime_stats.items():
-        print(f"Anime: {anime}")
-        for season, episodes in seasons.items():
-            print(f"  - Temporada {season}: {len(episodes)} episódios (Eps: {min(episodes)}-{max(episodes)})")
-    
-    print("\n" + "=" * 60)
-    print(f"Salvos {len(vectors)} vetores e {len(metadata)} metadados em disco.")
-    print(f"Arquivos gerados:")
-    print(f"  - Vetores: {OUTPUT_HASH_PATH}")
-    print(f"  - Metadados: {OUTPUT_META_PATH}")
-    print(f"Memória final: {update_max_memory():.2f} MB")
-    print(f"Pico de uso de memória: {max_memory:.2f} MB")
-    
-    processo_time = time.time() - start_time
-    print(f"Tempo total de execução: {timedelta(seconds=int(processo_time))}")
-    print("=" * 60)
 
 if __name__ == "__main__":
     main()
