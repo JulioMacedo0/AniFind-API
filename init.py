@@ -25,13 +25,25 @@ def update_max_memory():
     return current
 
 # Caminhos dos arquivos salvos
-PHASHES_PATH = "phashes.npy"
-METADATA_PATH = "metadata.pkl"
+PHASHES_PATH = "database/phashes.npy"
+METADATA_PATH = "database/metadata.pkl"
 
 # Carrega vetores e metadados
 print(f"Memória antes de carregar os dados: {update_max_memory():.2f} MB")
-vectors = np.load(PHASHES_PATH)
-print(f"Memória após carregar vetores: {update_max_memory():.2f} MB")
+vectors_raw = np.load(PHASHES_PATH)
+print(f"Vetores carregados com formato: {vectors_raw.shape}")
+
+# Descompactar os hashes para o formato 2D que o FAISS espera
+vectors_list = []
+for hash_value in vectors_raw:
+    # Converte cada hash de uint64 para 64 bits binários
+    binary_hash = np.unpackbits(np.array([hash_value], dtype=np.uint64).view(np.uint8))[:64]
+    # Converte para float32 para compatibilidade com FAISS
+    vectors_list.append(binary_hash.astype(np.float32))
+
+vectors = np.array(vectors_list)
+print(f"Vetores reformatados para formato: {vectors.shape}")
+print(f"Memória após processar vetores: {update_max_memory():.2f} MB")
 
 with open(METADATA_PATH, "rb") as f:
     metadata = pickle.load(f)
@@ -39,7 +51,7 @@ print(f"Memória após carregar metadados: {update_max_memory():.2f} MB")
 
 # Cria índice FAISS
 print("Criando índice FAISS...")
-base_index = faiss.IndexFlatL2(64)  # Índice base para similaridade L2
+base_index = faiss.IndexFlatL2(64)  # Índice base para similaridade L2 (64 bits do hash)
 index = faiss.IndexIDMap(base_index)  # Wrapper que permite IDs personalizados
 ids = np.array(list(metadata.keys()), dtype=np.int64)  # Certifica que os IDs são int64
 print(f"Memória antes de adicionar vetores ao índice: {update_max_memory():.2f} MB")
@@ -48,10 +60,17 @@ print(f"Memória após criar índice FAISS: {update_max_memory():.2f} MB")
 
 # === Converte frame (ou imagem) para vetor pHash ===
 def compute_phash_vector(frame_bgr):
+    # Redimensiona para o mesmo tamanho usado em generate_data.py
+    if frame_bgr.shape[0] > 64 or frame_bgr.shape[1] > 64:
+        frame_bgr = cv2.resize(frame_bgr, (64, 64), interpolation=cv2.INTER_AREA)
+    
     img_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
     img_pil = Image.fromarray(img_rgb)
     phash = imagehash.phash(img_pil)
-    return np.array(phash.hash, dtype=np.float32).flatten()
+    
+    # Retorna o hash em formato compatível com o índice FAISS
+    binary_hash = np.array(phash.hash, dtype=np.float32).flatten()
+    return binary_hash
 
 # === Busca por similaridade ===
 def buscar_frame_similar(frame_bgr, k=1):
