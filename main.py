@@ -197,6 +197,11 @@ def search_similar_frame(frame_bgr, k=5):
         "total_time": total_time
     }
     
+    # Adicionando log para verificar se os metadados estão intactos
+    if results and len(results) > 0:
+        first_id = results[0]["id"]
+        logger.info(f"Metadados para ID {first_id}: {metadata.get(first_id)}")
+    
     return results, timings
 
 # === API Routes ===
@@ -225,6 +230,10 @@ async def startup_load_index():
             
         with open(METADATA_PATH, "rb") as f:
             metadata = pickle.load(f)
+        
+        # Verificar alguns metadados para garantir que foram carregados corretamente
+        first_key = list(metadata.keys())[0] if metadata else None
+        logger.info(f"Exemplo de metadata carregado (ID {first_key}): {metadata.get(first_key)}")
         logger.info(f"Loaded metadata with {len(metadata)} entries")
         logger.info(f"Memory after loading metadata: {update_max_memory():.2f} MB")
         
@@ -301,6 +310,9 @@ async def search_frame(
     """
     global index, metadata
     
+    # Log para rastrear as chamadas de busca
+    logger.info(f"Iniciando busca de frame com imagem: {file.filename}")
+    
     if index is None or metadata is None:
         raise HTTPException(
             status_code=500, 
@@ -315,11 +327,22 @@ async def search_frame(
                 detail=f"File must be an image, got {file.content_type}"
             )
         
-        # Read the image
+        # Read the image and create a copy of the bytes
+        # Reset the file position to the beginning before reading
+        await file.seek(0)
         image_bytes = await file.read()
         
+        if not image_bytes:
+            raise ValueError("Empty file received. Please upload a valid image.")
+        
+        # Make a copy to ensure we're not depending on the file object's state
+        image_bytes_copy = image_bytes[:]
+        
+        # Log the size of the file for debugging
+        logger.info(f"Processing image: {file.filename}, size: {len(image_bytes_copy)} bytes")
+        
         # Convert to OpenCV format
-        nparr = np.frombuffer(image_bytes, np.uint8)
+        nparr = np.frombuffer(image_bytes_copy, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
         if img is None:
@@ -334,28 +357,29 @@ async def search_frame(
         # Format results for response model
         formatted_results = []
         for r in results:
-            metadata = r["metadata"]
+            # Criar uma cópia do metadata para não modificar o original
+            frame_metadata = r["metadata"].copy()  # Importante: criar uma cópia!
             
             # Format time as MM:SS or HH:MM:SS if hours > 0
-            second = metadata.get("second", 0)
+            second = frame_metadata.get("second", 0)
             if second is not None:
                 minutes = second // 60
                 hours = minutes // 60
                 if hours > 0:
                     # Format as HH:MM:SS
-                    metadata["time_formatted"] = f"{hours}:{minutes % 60:02d}:{second % 60:02d}"
+                    frame_metadata["time_formatted"] = f"{hours}:{minutes % 60:02d}:{second % 60:02d}"
                 else:
                     # Format as MM:SS
-                    metadata["time_formatted"] = f"{minutes}:{second % 60:02d}"
+                    frame_metadata["time_formatted"] = f"{minutes}:{second % 60:02d}"
             else:
-                metadata["time_formatted"] = "0:00"
+                frame_metadata["time_formatted"] = "0:00"
                 
             formatted_results.append(
                 SearchResult(
                     id=r["id"],
                     distance=r["distance"],
                     similarity_percentage=r["similarity_percentage"],
-                    metadata=metadata
+                    metadata=frame_metadata
                 )
             )
         
@@ -368,17 +392,38 @@ async def search_frame(
         )
         
         # Return the response
-        return SearchResponse(
+        response = SearchResponse(
             results=formatted_results,
             timings=search_timings,
             total_results=len(formatted_results),
             query_image=file.filename or "uploaded_image"
         )
         
+        # Reset file object for potential reuse
+        try:
+            await file.seek(0)
+        except Exception:
+            # Ignore any errors on reset
+            pass
+            
+        return response
+        
     except HTTPException:
         raise
+    except ValueError as e:
+        if "Could not decode image" in str(e):
+            logger.error(f"Invalid image format: {str(e)}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid image format: {str(e)}"
+            )
+        logger.error(f"Value error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing image: {str(e)}"
+        )
     except Exception as e:
-        logger.error(f"Error processing search: {str(e)}")
+        logger.error(f"Error processing search: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Error processing search: {str(e)}"
