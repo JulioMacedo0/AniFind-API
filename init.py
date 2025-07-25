@@ -67,10 +67,6 @@ vectors = binary_vectors
 
 # === Converte frame (ou imagem) para hash binário ===
 def compute_phash_vector(frame_bgr):
-    # Redimensiona para o mesmo tamanho usado em generate_data.py
-    if frame_bgr.shape[0] > 64 or frame_bgr.shape[1] > 64:
-        frame_bgr = cv2.resize(frame_bgr, (64, 64), interpolation=cv2.INTER_AREA)
-    
     img_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
     img_pil = Image.fromarray(img_rgb)
     phash_obj = imagehash.phash(img_pil)
