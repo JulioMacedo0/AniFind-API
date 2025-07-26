@@ -1,48 +1,42 @@
+# === searchPhash.py ===
+import faiss
 import pickle
 import numpy as np
 from PIL import Image
 import imagehash
-import faiss
 
-# === CONFIG ===
-IMAGE_PATH = "image.png"  # caminho para imagem de consulta
 INDEX_PATH = "indexes/global_index.faiss"
 METADATA_PATH = "indexes/metadata.pkl"
 TOP_K = 5
-CONFIDENCE_THRESHOLD = 0.70  # mínimo para exibir (em percentual)
 
-# === Funções ===
+def hashes_to_vector(ph, dh, ah):
+    return np.concatenate([
+        np.array(imagehash.hex_to_hash(ph).hash.flatten(), dtype=np.float32),
+        np.array(imagehash.hex_to_hash(dh).hash.flatten(), dtype=np.float32),
+        np.array(imagehash.hex_to_hash(ah).hash.flatten(), dtype=np.float32)
+    ]).reshape(1, -1)
+
 def search(image_path):
-    # Carregar FAISS + metadados
     index = faiss.read_index(INDEX_PATH)
     with open(METADATA_PATH, "rb") as f:
         metadata = pickle.load(f)
 
-    # Gera o pHash da imagem de consulta
     img = Image.open(image_path).convert("RGB")
-    query_hash = imagehash.phash(img)
-    query_vector = np.array(query_hash.hash.flatten(), dtype=np.float32).reshape(1, -1)
+    ph = str(imagehash.phash(img))
+    dh = str(imagehash.dhash(img))
+    ah = str(imagehash.average_hash(img))
+    query_vec = hashes_to_vector(ph, dh, ah)
 
-    # Buscar no FAISS
-    D, I = index.search(query_vector, TOP_K)
+    D, I = index.search(query_vec, TOP_K)
 
     print(f"[🔍] Results for: {image_path}\n")
-    for i, idx in enumerate(I[0]):
-        if idx == -1:
-            continue  # ignorar resultados inválidos (pode acontecer com base vazia)
-
+    for rank, idx in enumerate(I[0]):
         meta = metadata[idx]
-        db_hash = imagehash.hex_to_hash(meta["phash"])
-        hamming_dist = query_hash - db_hash
-        confidence = 1 - (hamming_dist / 64)
-
-        if confidence < CONFIDENCE_THRESHOLD:
-            continue
-
-        print(
-            f"#{i+1}: {meta['anime']} S{meta['season']:02}E{meta['episode']:02} @ {meta['timecode']} "
-            f"({meta['source_file']}) | 🔗 Confidence: {confidence*100:.2f}%"
-        )
+        dist = D[0][rank]
+        similarity = (1 - (dist / 64)) * 100  # Simples aproximação
+        print(f"#{rank+1}: {meta['anime']} S{meta['season']:02}E{meta['episode']:02} @ {meta['timecode']} "
+              f"({meta['source_file']}) | 🔗 Confidence: {similarity:.2f}%")
 
 if __name__ == "__main__":
-    search(IMAGE_PATH)
+    test_image_path = "image.png"  # Substitua pelo caminho da imagem que quer testar
+    search(test_image_path)
