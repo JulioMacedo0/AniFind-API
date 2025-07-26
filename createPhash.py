@@ -11,14 +11,14 @@ import re
 from pathlib import Path
 
 # === CONFIG ===
-VIDEO_DIR = Path("D:/animes/solo") 
+VIDEO_DIR = Path("test")  # Caminho com seus vídeos
 INDEX_PATH = Path("indexes/global_index.faiss")
 METADATA_PATH = Path("indexes/metadata.pkl")
 CHECKPOINT_DIR = Path("checkpoints")
 WIDTH = 512
-FPS = 1
+FPS = 6
 PIX_FMT = 'rgb24'
-
+USE_SCALE = True  # ⬅️ False mantém resolução original, True força WIDTH
 CHECKPOINT_DIR.mkdir(exist_ok=True, parents=True)
 INDEX_PATH.parent.mkdir(exist_ok=True, parents=True)
 
@@ -41,16 +41,20 @@ def extract_metadata_from_filename(filename):
     return {"anime": filename, "season": 0, "episode": 0}
 
 def seconds_to_timecode(seconds):
-    h = seconds // 3600
-    m = (seconds % 3600) // 60
-    s = seconds % 60
+    total_seconds = int(round(seconds))
+    h = total_seconds // 3600
+    m = (total_seconds % 3600) // 60
+    s = total_seconds % 60
     return f"{h:02}:{m:02}:{s:02}"
 
-def get_duration(video_path):
-    container = av.open(video_path)
+def get_video_info(filepath):
+    container = av.open(filepath)
+    video_stream = next(s for s in container.streams if s.type == "video")
     duration = int(container.duration / av.time_base)
+    width = video_stream.codec_context.width
+    height = video_stream.codec_context.height
     container.close()
-    return duration
+    return duration, width, height
 
 def hashes_to_vector(ph, dh, ah):
     return np.concatenate([
@@ -59,54 +63,81 @@ def hashes_to_vector(ph, dh, ah):
         np.array(imagehash.hex_to_hash(ah).hash.flatten(), dtype=np.float32)
     ])
 
-def extract_hash_vectors(filepath):
-    duration = get_duration(filepath)
-    cmd = [
-        "ffmpeg", "-loglevel", "quiet", "-hwaccel", "cuda", "-i", str(filepath),
-        "-vf", f"fps={FPS},scale={WIDTH}:-1", "-f", "rawvideo", "-pix_fmt", PIX_FMT, "-"
+def build_ffmpeg_command(filepath, use_cuda):
+    base_cmd = ["ffmpeg", "-loglevel", "quiet"]
+    if use_cuda:
+        base_cmd += ["-hwaccel", "cuda"]
+    vf_filters = [f"fps={FPS}"]
+    if USE_SCALE:
+        vf_filters.append(f"scale={WIDTH}:-1")
+    base_cmd += [
+        "-i", str(filepath),
+        "-vf", ",".join(vf_filters),
+        "-f", "rawvideo",
+        "-pix_fmt", PIX_FMT,
+        "-"
     ]
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    return base_cmd
 
-    estimated_height = int(WIDTH * 9 / 16)
-    bpf = WIDTH * estimated_height * 3
+def extract_hash_vectors(filepath):
+    duration, orig_width, orig_height = get_video_info(filepath)
+    print(f"[📽️] {filepath.name} | Duration: {duration}s | Resolution: {orig_width}x{orig_height}")
 
-    index = 0
-    vectors, metadatas = [], []
     info = extract_metadata_from_filename(filepath.stem)
-    start = time.time()
+    vectors, metadatas = [], []
 
-    while True:
-        raw = process.stdout.read(bpf)
-        if not raw or len(raw) < bpf:
-            break
+    for try_cuda in [True, False]:
+        cmd = build_ffmpeg_command(filepath, use_cuda=try_cuda)
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        estimated_width = WIDTH if USE_SCALE else orig_width
+        estimated_height = int(estimated_width * orig_height / orig_width)
+        bpf = estimated_width * estimated_height * 3
 
-        img = Image.frombytes("RGB", (WIDTH, estimated_height), raw)
-        if index == 0:
-            estimated_height = img.height
-            bpf = WIDTH * estimated_height * 3
+        index = 0
+        success = False
+        start = time.time()
+        while True:
+            raw = process.stdout.read(bpf)
+            if not raw or len(raw) < bpf:
+                break
+            try:
+                img = Image.frombytes("RGB", (estimated_width, estimated_height), raw)
+                if index == 0:
+                    estimated_height = img.height
+                    estimated_width = img.width
+                    bpf = estimated_width * estimated_height * 3
 
-        ph = str(imagehash.phash(img))
-        dh = str(imagehash.dhash(img))
-        ah = str(imagehash.average_hash(img))
-        vectors.append(hashes_to_vector(ph, dh, ah))
-        metadatas.append({
-            **info,
-            "source_file": filepath.name,
-            "second": index,
-            "timecode": seconds_to_timecode(index),
-            "phash": ph,
-            "dhash": dh,
-            "ahash": ah
-        })
+                ph = str(imagehash.phash(img))
+                dh = str(imagehash.dhash(img))
+                ah = str(imagehash.average_hash(img))
+                vectors.append(hashes_to_vector(ph, dh, ah))
+                real_seconds = index / FPS
+                metadatas.append({
+                    **info,
+                    "source_file": filepath.name,
+                    "second": real_seconds,
+                    "timecode": seconds_to_timecode(real_seconds),
+                    "phash": ph,
+                    "dhash": dh,
+                    "ahash": ah
+                })
 
-        index += 1
-        if index % 100 == 0:
-            elapsed = time.time() - start
-            print(f"[⏳] {index} frames | {elapsed:.2f}s elapsed")
+                index += 1
+                if index % 100 == 0:
+                    print(f"[⏱️] {index} frames processed in {time.time() - start:.2f}s")
+                success = True
+            except Exception as e:
+                print(f"[⚠️] Failed frame at {index}: {e}")
+                break
 
-    process.stdout.close()
-    process.wait()
-    return vectors, metadatas
+        process.stdout.close()
+        process.wait()
+
+        if success:
+            print(f"[✅] Total frames read: {index}")
+            return vectors, metadatas
+
+    raise RuntimeError("Failed to extract frames with or without CUDA")
 
 def is_processed(name):
     return (CHECKPOINT_DIR / f"{name}.done").exists()
@@ -132,7 +163,7 @@ def main():
             print(f"[✔] Skipping {file.name} (already processed)")
             continue
 
-        print(f"[📥] Processing {file.name}")
+        print(f"\n[📥] Processing {file.name}")
         try:
             start = time.time()
             vectors, metadatas = extract_hash_vectors(file)
@@ -144,11 +175,12 @@ def main():
                 pickle.dump(metadata_all, f)
 
             mark_processed(file.name)
-            print(f"[✅] Added {len(vectors)} vectors from {file.name} in {time.time() - start:.2f}s\n")
+            elapsed = time.time() - start
+            print(f"[🎯] {file.name} done | {len(vectors)} hashes | Time: {elapsed:.2f}s")
         except Exception as e:
-            print(f"[❌] Error with {file.name}: {e}")
+            print(f"[❌] Error processing {file.name}: {e}")
 
-    print(f"[🎉] Done! Total indexed entries: {len(metadata_all)}")
+    print(f"\n[🏁] Finished. Total indexed entries: {len(metadata_all)}")
 
 if __name__ == "__main__":
     main()
