@@ -55,3 +55,7 @@ Thumbs.db
 
 # Locks e ambientes
 uv.lock
+
+#database
+indexes/
+checkpoints/
