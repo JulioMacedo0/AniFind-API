@@ -1,4 +1,4 @@
-# === indexador.py ===
+# === createPhash.py ===
 import subprocess
 import imagehash
 from PIL import Image
@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 # === CONFIG ===
-VIDEO_DIR = Path("test")
+VIDEO_DIR = Path("D:/animes/solo") 
 INDEX_PATH = Path("indexes/global_index.faiss")
 METADATA_PATH = Path("indexes/metadata.pkl")
 CHECKPOINT_DIR = Path("checkpoints")
@@ -52,10 +52,14 @@ def get_duration(video_path):
     container.close()
     return duration
 
-def phash_to_vector(phash_str):
-    return np.array(imagehash.hex_to_hash(phash_str).hash.flatten(), dtype=np.float32)
+def hashes_to_vector(ph, dh, ah):
+    return np.concatenate([
+        np.array(imagehash.hex_to_hash(ph).hash.flatten(), dtype=np.float32),
+        np.array(imagehash.hex_to_hash(dh).hash.flatten(), dtype=np.float32),
+        np.array(imagehash.hex_to_hash(ah).hash.flatten(), dtype=np.float32)
+    ])
 
-def extract_phashes(filepath):
+def extract_hash_vectors(filepath):
     duration = get_duration(filepath)
     cmd = [
         "ffmpeg", "-loglevel", "quiet", "-hwaccel", "cuda", "-i", str(filepath),
@@ -69,6 +73,7 @@ def extract_phashes(filepath):
     index = 0
     vectors, metadatas = [], []
     info = extract_metadata_from_filename(filepath.stem)
+    start = time.time()
 
     while True:
         raw = process.stdout.read(bpf)
@@ -80,69 +85,70 @@ def extract_phashes(filepath):
             estimated_height = img.height
             bpf = WIDTH * estimated_height * 3
 
-        phash_str = str(imagehash.phash(img))
-        vectors.append(phash_to_vector(phash_str))
+        ph = str(imagehash.phash(img))
+        dh = str(imagehash.dhash(img))
+        ah = str(imagehash.average_hash(img))
+        vectors.append(hashes_to_vector(ph, dh, ah))
         metadatas.append({
             **info,
             "source_file": filepath.name,
             "second": index,
             "timecode": seconds_to_timecode(index),
-            "phash": phash_str
+            "phash": ph,
+            "dhash": dh,
+            "ahash": ah
         })
+
         index += 1
+        if index % 100 == 0:
+            elapsed = time.time() - start
+            print(f"[⏳] {index} frames | {elapsed:.2f}s elapsed")
 
     process.stdout.close()
     process.wait()
     return vectors, metadatas
 
-def is_processed(relative_path):
-    checkpoint_file = CHECKPOINT_DIR / (relative_path.as_posix().replace("/", "__") + ".done")
-    return checkpoint_file.exists()
+def is_processed(name):
+    return (CHECKPOINT_DIR / f"{name}.done").exists()
 
-def mark_processed(relative_path):
-    checkpoint_file = CHECKPOINT_DIR / (relative_path.as_posix().replace("/", "__") + ".done")
-    checkpoint_file.touch()
+def mark_processed(name):
+    (CHECKPOINT_DIR / f"{name}.done").touch()
 
 def main():
-    vectors_all, metadata_all = [], []
-    video_files = [f for f in VIDEO_DIR.rglob("*") if f.suffix.lower() in [".mkv", ".mp4"]]
+    metadata_all = []
+    if METADATA_PATH.exists():
+        with open(METADATA_PATH, "rb") as f:
+            metadata_all = pickle.load(f)
 
-    for file in video_files:
-        rel_path = file.relative_to(VIDEO_DIR)
-        if is_processed(rel_path):
-            print(f"[✔] Skipping {rel_path} (already processed)")
-            continue
-
-        print(f"[📥] Processing {rel_path}")
-        vectors, metadatas = extract_phashes(file)
-        vectors_all.extend(vectors)
-        metadata_all.extend(metadatas)
-        mark_processed(rel_path)
-
-    if not vectors_all:
-        print("[⚠] No new vectors to add.")
-        return
-
-    print(f"[➕] Adding {len(vectors_all)} vectors to FAISS...")
     if INDEX_PATH.exists():
         index = faiss.read_index(str(INDEX_PATH))
     else:
-        index = faiss.IndexFlatL2(64)
+        index = faiss.IndexFlatL2(192)
 
-    index.add(np.array(vectors_all, dtype=np.float32))
-    faiss.write_index(index, str(INDEX_PATH))
+    for file in VIDEO_DIR.rglob("*"):
+        if file.suffix.lower() not in [".mkv", ".mp4"]:
+            continue
+        if is_processed(file.name):
+            print(f"[✔] Skipping {file.name} (already processed)")
+            continue
 
-    if METADATA_PATH.exists():
-        with open(METADATA_PATH, "rb") as f:
-            existing = pickle.load(f)
-    else:
-        existing = []
+        print(f"[📥] Processing {file.name}")
+        try:
+            start = time.time()
+            vectors, metadatas = extract_hash_vectors(file)
+            index.add(np.array(vectors, dtype=np.float32))
+            metadata_all.extend(metadatas)
 
-    existing.extend(metadata_all)
-    with open(METADATA_PATH, "wb") as f:
-        pickle.dump(existing, f)
+            faiss.write_index(index, str(INDEX_PATH))
+            with open(METADATA_PATH, "wb") as f:
+                pickle.dump(metadata_all, f)
 
-    print(f"[✅] Database updated. Total entries: {len(existing)}")
+            mark_processed(file.name)
+            print(f"[✅] Added {len(vectors)} vectors from {file.name} in {time.time() - start:.2f}s\n")
+        except Exception as e:
+            print(f"[❌] Error with {file.name}: {e}")
+
+    print(f"[🎉] Done! Total indexed entries: {len(metadata_all)}")
 
 if __name__ == "__main__":
     main()
