@@ -11,14 +11,14 @@ import re
 from pathlib import Path
 
 # === CONFIG ===
-VIDEO_DIR = Path("test")  # Caminho com seus vídeos
+VIDEO_DIR = Path("test")
 INDEX_PATH = Path("indexes/global_index.faiss")
 METADATA_PATH = Path("indexes/metadata.pkl")
 CHECKPOINT_DIR = Path("checkpoints")
 WIDTH = 512
 FPS = 6
 PIX_FMT = 'rgb24'
-USE_SCALE = True  # ⬅️ False mantém resolução original, True força WIDTH
+USE_SCALE = True
 CHECKPOINT_DIR.mkdir(exist_ok=True, parents=True)
 INDEX_PATH.parent.mkdir(exist_ok=True, parents=True)
 
@@ -115,6 +115,7 @@ def extract_hash_vectors(filepath):
                 metadatas.append({
                     **info,
                     "source_file": filepath.name,
+                    "preview_source_path": str(filepath.resolve()),
                     "second": real_seconds,
                     "timecode": seconds_to_timecode(real_seconds),
                     "phash": ph,
