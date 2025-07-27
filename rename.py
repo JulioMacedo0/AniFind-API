@@ -2,13 +2,12 @@ import re
 from pathlib import Path
 import shutil
 
-VIDEO_DIR = Path("test")
+VIDEO_DIR = Path("D:/animes/rename")
 VIDEO_EXTENSIONS = [".mp4", ".mkv", ".avi"]
 
 def clean_filename(name: str):
-
-    name = re.sub(r"\[.*?\]", "", name)
-    name = re.sub(r"[()\[\]]", "", name)  
+    name = re.sub(r"\[.*?\]", "", name)  # Remove tags entre colchetes
+    name = re.sub(r"[()\[\]]", "", name)  # Remove parênteses e colchetes
     return name.strip()
 
 def extract_metadata(filename: str):
@@ -25,11 +24,12 @@ def extract_metadata(filename: str):
         if match:
             data = match.groupdict()
             anime = data["anime"].strip()
-            anime = re.sub(r"[-–—]?\s*\d+$", "", anime)  # Remove final 001, 002...
+            anime = re.sub(r"[-–—]?\s*\d+$", "", anime)  # Remove números finais
             anime = anime.replace("_", " ").replace(".", " ").strip()
+            anime = re.sub(r"\s+", " ", anime)  # Normaliza múltiplos espaços
             season = int(data["season"])
             episode = int(data["episode"])
-            normalized = f"{anime} - S{season:02}E{episode:02}"
+            normalized = f"{anime}-S{season:02}E{episode:02}"
             return normalized
     return None
 
