@@ -28,11 +28,17 @@ def upload_preview(local_path: Path, anime: str, filename: str) -> str:
     ensure_bucket()
     object_name = f"{anime}/{filename}"
     print(f"[🚀] Checking MinIO for: {object_name}")
+    
     if not minio_object_exists(object_name):
         print(f"[⬆️] Uploading: {local_path} → {object_name}")
         MINIO_CLIENT.fput_object(
-            BUCKET_NAME, object_name, str(local_path)
+            bucket_name=BUCKET_NAME,
+            object_name=object_name,
+            file_path=str(local_path),
+            content_type="video/mp4" 
         )
     else:
         print(f"[📦] Already exists on MinIO: {object_name}")
+    
     return f"http://localhost:9000/{BUCKET_NAME}/{object_name}"
+
