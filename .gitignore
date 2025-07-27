@@ -59,3 +59,8 @@ uv.lock
 #database
 indexes/
 checkpoints/
+
+#minio
+minio_data/
+# Docker
+docker-compose.override.yml
