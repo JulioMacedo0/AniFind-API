@@ -21,28 +21,77 @@ uv sync
 uv sync --dev
 ```
 
-### 2. Run the API
+### 2. Configure environment variables
 
 ```bash
-# Run with default settings
+# Copy the example environment file
+cp .env.example .env
+
+# Edit the .env file with your configuration
+nano .env
+```
+
+**Environment Variables:**
+
+- `MINIO_ENDPOINT` - MinIO server endpoint (default: localhost:9000)
+- `MINIO_ACCESS_KEY` - MinIO access key (default: admin)
+- `MINIO_SECRET_KEY` - MinIO secret key (default: admin123)
+- `MINIO_SECURE` - Use HTTPS for MinIO (default: false)
+- `MINIO_BUCKET_NAME` - Bucket name for previews (default: previews)
+- `API_HOST` - API host (default: 127.0.0.1)
+- `API_PORT` - API port (default: 8000)
+- `FAISS_INDEX_PATH` - Path to FAISS index file
+- `METADATA_PATH` - Path to metadata pickle file
+- `SEARCH_TOP_K` - Number of top results to return (default: 3)
+- `PREVIEW_URL_EXPIRES_HOURS` - Presigned URL expiration in hours (default: 24)
+
+### 3. Setup MinIO (for video previews)
+
+```bash
+# Start MinIO server (using Docker)
+docker run -p 9000:9000 -p 9001:9001 \
+  -e MINIO_ROOT_USER=admin \
+  -e MINIO_ROOT_PASSWORD=admin123 \
+  minio/minio server /data --console-address ':9001'
+
+# Configure MinIO bucket and policies
+uv run setup_minio.py
+
+# Access MinIO Console (optional)
+# http://localhost:9001 (admin/admin123)
+```
+
+### 4. Run the API
+
+```bash
+# Run with default settings (from .env)
 uv run run_api.py
 
 # Run in development mode (with auto-reload)
 uv run run_api.py --reload
 
-# Run on specific host/port
+# Run on specific host/port (overrides .env)
 uv run run_api.py --host 0.0.0.0 --port 8080
 
 # Run with custom workers
 uv run run_api.py --workers 4
 ```
 
-### 3. Access documentation
+### 5. Access documentation
 
 After starting the API, visit:
 
 - **Swagger UI**: http://localhost:8000/docs
 - **ReDoc**: http://localhost:8000/redoc
+
+## Quick Start
+
+1. Install dependencies: `uv sync`
+2. Configure environment: `cp .env.example .env`
+3. Start MinIO: `docker run -p 9000:9000 -p 9001:9001 -e MINIO_ROOT_USER=admin -e MINIO_ROOT_PASSWORD=admin123 minio/minio server /data --console-address ':9001'`
+4. Setup MinIO: `uv run setup_minio.py`
+5. Start API: `uv run run_api.py --reload`
+6. Test: Open http://localhost:8000/docs
 
 ## Available Endpoints
 
@@ -255,22 +304,55 @@ uv run example_usage.py
 
 ### Environment Variables
 
-You can configure the API using environment variables:
+All configuration is managed through environment variables in the `.env` file:
 
 ```bash
+# MinIO Configuration
+MINIO_ENDPOINT=localhost:9000
+MINIO_ACCESS_KEY=admin
+MINIO_SECRET_KEY=admin123
+MINIO_SECURE=false
+MINIO_BUCKET_NAME=previews
+PREVIEW_URL_EXPIRES_HOURS=24
+
 # API Configuration
-export ANIFIND_HOST=0.0.0.0
-export ANIFIND_PORT=8000
-export ANIFIND_WORKERS=1
+API_HOST=127.0.0.1
+API_PORT=8000
+API_WORKERS=1
 
 # Data Paths
-export FAISS_INDEX_PATH=indexes/global_index.faiss
-export METADATA_PATH=indexes/metadata.pkl
+FAISS_INDEX_PATH=indexes/global_index.faiss
+METADATA_PATH=indexes/metadata.pkl
+SEARCH_TOP_K=3
+```
 
-# MinIO Configuration (for preview uploads)
-export MINIO_ENDPOINT=localhost:9000
-export MINIO_ACCESS_KEY=your_access_key
-export MINIO_SECRET_KEY=your_secret_key
+## Project Structure
+
+```
+anime-episode-finder/
+├── app/
+│   ├── __init__.py
+│   ├── main.py                     # Main FastAPI application
+│   ├── models/
+│   │   ├── __init__.py
+│   │   └── image_search_models.py  # Pydantic models
+│   ├── routers/
+│   │   ├── __init__.py
+│   │   └── image_search.py         # API routes
+│   └── services/
+│       ├── __init__.py
+│       └── image_search_service.py # Business logic
+├── indexes/
+│   ├── global_index.faiss          # FAISS search index
+│   └── metadata.pkl                # Episode metadata
+├── config.py                       # Configuration management
+├── searchPhash.py                  # Core search functionality
+├── minio_client.py                 # MinIO integration
+├── setup_minio.py                  # MinIO setup script
+├── run_api.py                      # API runner script
+├── .env.example                    # Environment variables template
+├── pyproject.toml                  # Project dependencies
+└── uv.lock                         # Locked dependencies
 ```
 
 ## Performance
@@ -279,6 +361,7 @@ export MINIO_SECRET_KEY=your_secret_key
 - **Search time**: ~20-50ms per query
 - **Memory usage**: ~1-3GB (depending on index size)
 - **Concurrent requests**: Supports multiple simultaneous searches
+- **Data persistence**: Index and metadata loaded once at startup
 
 ## Error Handling
 
