@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  anifind-api:
+    build: .
+    container_name: anifind-api
+    volumes:
+      - ${DATA_PATH:-./data}/checkpoints:/app/checkpoints
+      - ${DATA_PATH:-./data}/indexes:/app/indexes
+      - ${DATA_PATH:-./data}/previews:/app/previews
+      - ${DATA_PATH:-./data}/videos:/app/videos
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      # API Configuration
+      - API_HOST=${API_HOST:-0.0.0.0}
+      - API_PORT=${API_PORT:-8000}
+      - API_WORKERS=${API_WORKERS:-2}
+      # MinIO Configuration
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_SECURE=${MINIO_SECURE:-true}
+      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-previews}
+      # Data Paths (container paths)
+      - FAISS_INDEX_PATH=${FAISS_INDEX_PATH:-/app/indexes/global_index.faiss}
+      - METADATA_PATH=${METADATA_PATH:-/app/indexes/metadata.pkl}
+      - VIDEO_BASE_DIR=${VIDEO_BASE_DIR:-/app/videos}
+      # Search Configuration
+      - SEARCH_TOP_K=${SEARCH_TOP_K:-3}
+      - PREVIEW_URL_EXPIRES_HOURS=${PREVIEW_URL_EXPIRES_HOURS:-24}
+      # Video Processing
+      - VIDEO_PROCESSING_WIDTH=${VIDEO_PROCESSING_WIDTH:-512}
+      - VIDEO_PROCESSING_FPS=${VIDEO_PROCESSING_FPS:-6}
+      - VIDEO_PROCESSING_PIX_FMT=${VIDEO_PROCESSING_PIX_FMT:-rgb24}
+    restart: unless-stopped
