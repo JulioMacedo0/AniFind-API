@@ -65,6 +65,9 @@ class Config:
     FAISS_INDEX_PATH = get_path_env('FAISS_INDEX_PATH', 'indexes/global_index.faiss')
     METADATA_PATH = get_path_env('METADATA_PATH', 'indexes/metadata.pkl')
     
+    # === VIDEO PATHS (for portable deployments) ===
+    VIDEO_BASE_DIR = get_path_env('VIDEO_BASE_DIR', 'test')
+    
     # === SEARCH CONFIGURATION ===
     SEARCH_TOP_K = get_int_env('SEARCH_TOP_K', 3)
     
@@ -88,6 +91,7 @@ class Config:
         print(f"   API Workers: {cls.API_WORKERS}")
         print(f"   FAISS Index: {cls.FAISS_INDEX_PATH}")
         print(f"   Metadata Path: {cls.METADATA_PATH}")
+        print(f"   Video Base Dir: {cls.VIDEO_BASE_DIR}")
         print(f"   Search Top K: {cls.SEARCH_TOP_K}")
         print(f"   Preview URL Expires: {cls.PREVIEW_URL_EXPIRES_HOURS}h")
 

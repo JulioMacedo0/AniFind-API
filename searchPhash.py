@@ -109,6 +109,9 @@ def search(image_path, use_cached=False):
         dist = D[0][rank]
         similarity = float((1 - (dist / 64)) * 100)
 
+        # Construct full video path from relative path stored in metadata
+        video_full_path = config.VIDEO_BASE_DIR / meta["preview_source_path"]
+        
         result = {
             "rank": rank + 1,
             "anime": clean_anime_name(meta["anime"]),
@@ -119,13 +122,13 @@ def search(image_path, use_cached=False):
             "similarity": similarity,
             "anime_id": meta["anime_id"], 
             "source_file": meta["source_file"],
-            "preview_source_path": meta["preview_source_path"]
+            "preview_source_path": str(video_full_path)
         }
 
         if rank == 0:
             try:
                 preview_path = create_preview(
-                    meta["preview_source_path"], meta["second"]
+                    str(video_full_path), meta["second"]
                 )
                 # Use cleaned anime name for folder
                 anime_folder = clean_anime_name(meta["anime"]).replace(" ", "_")

@@ -9,15 +9,16 @@ import pickle
 import faiss
 import re
 from pathlib import Path
+from config import config
 
 # === CONFIG ===
-VIDEO_DIR = Path("test")
-INDEX_PATH = Path("indexes/global_index.faiss")
-METADATA_PATH = Path("indexes/metadata.pkl")
+VIDEO_DIR = config.VIDEO_BASE_DIR
+INDEX_PATH = config.FAISS_INDEX_PATH
+METADATA_PATH = config.METADATA_PATH
 CHECKPOINT_DIR = Path("checkpoints")
-WIDTH = 512
-FPS = 6
-PIX_FMT = 'rgb24'
+WIDTH = config.VIDEO_PROCESSING_WIDTH
+FPS = config.VIDEO_PROCESSING_FPS
+PIX_FMT = config.VIDEO_PROCESSING_PIX_FMT
 USE_SCALE = True
 CHECKPOINT_DIR.mkdir(exist_ok=True, parents=True)
 INDEX_PATH.parent.mkdir(exist_ok=True, parents=True)
@@ -112,10 +113,12 @@ def extract_hash_vectors(filepath):
                 ah = str(imagehash.average_hash(img))
                 vectors.append(hashes_to_vector(ph, dh, ah))
                 real_seconds = index / FPS
+                # Store relative path from VIDEO_DIR for portability
+                relative_path = filepath.relative_to(VIDEO_DIR.resolve())
                 metadatas.append({
                     **info,
                     "source_file": filepath.name,
-                    "preview_source_path": str(filepath.resolve()),
+                    "preview_source_path": str(relative_path),
                     "second": real_seconds,
                     "timecode": seconds_to_timecode(real_seconds),
                     "phash": ph,
