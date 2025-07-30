@@ -86,12 +86,68 @@ After starting the API, visit:
 
 ## Quick Start
 
+### Local Development
+
 1. Install dependencies: `uv sync`
 2. Configure environment: `cp .env.example .env`
 3. Start MinIO: `docker run -p 9000:9000 -p 9001:9001 -e MINIO_ROOT_USER=admin -e MINIO_ROOT_PASSWORD=admin123 minio/minio server /data --console-address ':9001'`
 4. Setup MinIO: `uv run setup_minio.py`
 5. Start API: `uv run run_api.py --reload`
 6. Test: Open http://localhost:8000/docs
+
+### Docker Production
+
+1. Configure environment: `cp .env.example .env` and edit your settings
+2. Prepare data structure (see [Docker Deployment](#docker-deployment) section)
+3. Run: `docker-compose up -d`
+4. Check: `curl http://localhost:8000/health`
+
+## Docker Deployment
+
+### Data Structure
+
+Your production server needs this directory structure:
+
+```
+/data/anifind/
+├── indexes/
+│   ├── global_index.faiss    # Generated on powerful machine
+│   └── metadata.pkl          # Generated on powerful machine
+├── videos/                   # Original video files
+│   ├── anime1.mkv
+│   └── anime2.mkv
+├── checkpoints/              # Auto-created cache
+└── previews/                 # Auto-created cache
+```
+
+### Setup Steps
+
+1. **Copy data from generation machine:**
+
+   ```bash
+   # On powerful machine
+   tar -czf anifind-data.tar.gz indexes/ test/
+   scp anifind-data.tar.gz user@server:/tmp/
+
+   # On production server
+   sudo mkdir -p /data/anifind/{indexes,videos,checkpoints,previews}
+   sudo tar -xzf /tmp/anifind-data.tar.gz -C /data/anifind/
+   sudo mv /data/anifind/test/* /data/anifind/videos/
+   sudo chown -R 1000:1000 /data/anifind/
+   ```
+
+2. **Configure environment:**
+
+   ```bash
+   cp .env.example .env
+   # Edit .env with your MinIO credentials and settings
+   ```
+
+3. **Deploy:**
+   ```bash
+   docker-compose up -d
+   docker-compose logs -f
+   ```
 
 ## Available Endpoints
 
