@@ -10,7 +10,44 @@ from minio_client import upload_preview
 
 INDEX_PATH = "indexes/global_index.faiss"
 METADATA_PATH = "indexes/metadata.pkl"
-TOP_K = 5
+TOP_K = 3
+
+# Global variables for persistent data loading
+_cached_index = None
+_cached_metadata = None
+_is_loaded = False
+
+def load_data():
+    """Load FAISS index and metadata once and cache them globally."""
+    global _cached_index, _cached_metadata, _is_loaded
+    
+    if _is_loaded:
+        return _cached_index, _cached_metadata
+    
+    try:
+        print("🔄 Loading FAISS index and metadata...")
+        _cached_index = faiss.read_index(INDEX_PATH)
+        with open(METADATA_PATH, "rb") as f:
+            _cached_metadata = pickle.load(f)
+        
+        _is_loaded = True
+        print(f"✅ Data loaded successfully:")
+        print(f"📊 Index size: {_cached_index.ntotal} vectors")
+        print(f"📋 Metadata entries: {len(_cached_metadata)}")
+        
+        return _cached_index, _cached_metadata
+    
+    except Exception as e:
+        print(f"❌ Error loading data: {e}")
+        raise
+
+def get_data_status():
+    """Get the current status of loaded data."""
+    return {
+        "loaded": _is_loaded,
+        "index_size": _cached_index.ntotal if _cached_index else 0,
+        "metadata_entries": len(_cached_metadata) if _cached_metadata else 0
+    }
 
 def hashes_to_vector(ph, dh, ah):
     return np.concatenate([
@@ -19,10 +56,24 @@ def hashes_to_vector(ph, dh, ah):
         np.array(imagehash.hex_to_hash(ah).hash.flatten(), dtype=np.float32)
     ]).reshape(1, -1)
 
-def search(image_path):
-    index = faiss.read_index(INDEX_PATH)
-    with open(METADATA_PATH, "rb") as f:
-        metadata = pickle.load(f)
+def search(image_path, use_cached=False):
+    """
+    Search for anime episode using an image.
+    
+    Args:
+        image_path: Path to the search image
+        use_cached: If True, use cached data (load once). If False, load fresh data each time.
+    
+    Returns:
+        Dictionary with search results
+    """
+    if use_cached:
+        index, metadata = load_data()
+    else:
+        # Original behavior: load fresh data each time
+        index = faiss.read_index(INDEX_PATH)
+        with open(METADATA_PATH, "rb") as f:
+            metadata = pickle.load(f)
 
     img = Image.open(image_path).convert("RGB")
     ph = str(imagehash.phash(img))
@@ -49,23 +100,28 @@ def search(image_path):
             "timecode": meta["timecode"],
             "second": meta["second"],
             "similarity": similarity,
+            "anime_id": meta["anime_id"], 
             "source_file": meta["source_file"],
             "preview_source_path": meta["preview_source_path"]
         }
 
         if rank == 0:
-            preview_path = create_preview(
-                meta["preview_source_path"], meta["second"]
-            )
-            anime_folder = meta["anime"].replace(" ", "_")
-            preview_url = upload_preview(preview_path, anime_folder, preview_path.name)
-            result["preview_video"] = preview_url
+            try:
+                preview_path = create_preview(
+                    meta["preview_source_path"], meta["second"]
+                )
+                anime_folder = meta["anime"].replace(" ", "_")
+                preview_url = upload_preview(preview_path, anime_folder, preview_path.name)
+                result["preview_video"] = preview_url
+            except Exception as preview_error:
+                print(f"Warning: Could not generate preview: {preview_error}")
+                result["preview_video"] = None
+            
             top_result = result
 
         results.append(result)
 
     return {
-        "query": str(image_path),
         "top_result": top_result,
         "all_results": results,
         "preview_url": preview_url
@@ -74,5 +130,5 @@ def search(image_path):
 # Execução direta para testes
 if __name__ == "__main__":
     test_image_path = "image.png"  # Substitua aqui com o caminho do frame de teste
-    result = search(test_image_path)
+    result = search(test_image_path, use_cached=False)  # Use False for testing original behavior
     pprint(result)
