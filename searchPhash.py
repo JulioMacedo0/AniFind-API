@@ -49,6 +49,22 @@ def get_data_status():
         "metadata_entries": len(_cached_metadata) if _cached_metadata else 0
     }
 
+def clean_anime_name(name):
+    """Clean anime name by removing unwanted characters."""
+    if not name:
+        return name
+    
+    # Remove trailing dashes and spaces
+    name = name.rstrip('- ')
+    
+    # Remove leading dashes and spaces
+    name = name.lstrip('- ')
+    
+    # Replace multiple spaces with single space
+    name = ' '.join(name.split())
+    
+    return name
+
 def hashes_to_vector(ph, dh, ah):
     return np.concatenate([
         np.array(imagehash.hex_to_hash(ph).hash.flatten(), dtype=np.float32),
@@ -94,7 +110,7 @@ def search(image_path, use_cached=False):
 
         result = {
             "rank": rank + 1,
-            "anime": meta["anime"],
+            "anime": clean_anime_name(meta["anime"]),
             "season": meta["season"],
             "episode": meta["episode"],
             "timecode": meta["timecode"],
@@ -110,7 +126,8 @@ def search(image_path, use_cached=False):
                 preview_path = create_preview(
                     meta["preview_source_path"], meta["second"]
                 )
-                anime_folder = meta["anime"].replace(" ", "_")
+                # Use cleaned anime name for folder
+                anime_folder = clean_anime_name(meta["anime"]).replace(" ", "_")
                 preview_url = upload_preview(preview_path, anime_folder, preview_path.name)
                 result["preview_video"] = preview_url
             except Exception as preview_error:
