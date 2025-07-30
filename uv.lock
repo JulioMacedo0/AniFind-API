@@ -834,6 +834,7 @@ dependencies = [
     { name = "numpy" },
     { name = "opencv-contrib-python-headless" },
     { name = "pillow" },
+    { name = "python-dotenv" },
 ]
 
 [package.metadata]
@@ -847,4 +848,5 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.3.0" },
     { name = "opencv-contrib-python-headless", specifier = ">=4.11.0.86" },
     { name = "pillow", specifier = ">=11.2.1" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
 ]
