@@ -290,13 +290,6 @@ The API returns appropriate HTTP status codes:
 - `500`: Internal server error
 - `503`: Service unavailable (data not loaded)
 
-## Contributing
-
-1. Install dependencies: `uv sync --dev`
-2. Make your changes
-3. Test your changes: `uv run test_anifind.py`
-4. Submit a pull request
-
 ## License
 
 This project is licensed under the MIT License.
