@@ -21,7 +21,7 @@ PIX_FMT = 'rgb24'
 USE_SCALE = True
 CHECKPOINT_DIR.mkdir(exist_ok=True, parents=True)
 INDEX_PATH.parent.mkdir(exist_ok=True, parents=True)
-
+ANIME_ID = 151807
 # === UTILS ===
 def extract_metadata_from_filename(filename):
     patterns = [
@@ -120,7 +120,8 @@ def extract_hash_vectors(filepath):
                     "timecode": seconds_to_timecode(real_seconds),
                     "phash": ph,
                     "dhash": dh,
-                    "ahash": ah
+                    "ahash": ah,
+                    "anime_id": ANIME_ID
                 })
 
                 index += 1
