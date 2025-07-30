@@ -15,18 +15,19 @@ import uvicorn
 import argparse
 from pathlib import Path
 import sys
+from config import config
 
-# Adicionar o diretório atual ao Python path
+# Add current directory to Python path
 current_dir = Path(__file__).parent
 sys.path.insert(0, str(current_dir))
 
 
 def main():
     parser = argparse.ArgumentParser(description="Run AniFind API")
-    parser.add_argument("--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=8000, help="Port to bind (default: 8000)")
+    parser.add_argument("--host", default=config.API_HOST, help=f"Host to bind (default: {config.API_HOST})")
+    parser.add_argument("--port", type=int, default=config.API_PORT, help=f"Port to bind (default: {config.API_PORT})")
     parser.add_argument("--reload", action="store_true", help="Enable auto-reload for development")
-    parser.add_argument("--workers", type=int, default=1, help="Number of workers (default: 1)")
+    parser.add_argument("--workers", type=int, default=config.API_WORKERS, help=f"Number of workers (default: {config.API_WORKERS})")
     
     args = parser.parse_args()
     

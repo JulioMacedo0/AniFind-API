@@ -7,19 +7,20 @@ This script just creates the bucket needed for video previews.
 from minio import Minio
 from minio.error import S3Error
 import sys
+from config import config
 
 def setup_minio():
     """Setup MinIO bucket for previews."""
     
-    # MinIO client configuration
+    # MinIO client configuration from environment
     client = Minio(
-        "localhost:9000",
-        access_key="admin",
-        secret_key="admin123",
-        secure=False
+        config.MINIO_ENDPOINT,
+        access_key=config.MINIO_ACCESS_KEY,
+        secret_key=config.MINIO_SECRET_KEY,
+        secure=config.MINIO_SECURE
     )
     
-    bucket_name = "previews"
+    bucket_name = config.MINIO_BUCKET_NAME
     
     try:
         # Create bucket if it doesn't exist
@@ -52,13 +53,17 @@ def main():
     print("🚀 AniFind MinIO Setup")
     print("=" * 40)
     
+    # Print current configuration
+    config.print_config()
+    print()
+    
     # Check if MinIO is running
     try:
         client = Minio(
-            "localhost:9000",
-            access_key="admin",
-            secret_key="admin123",
-            secure=False
+            config.MINIO_ENDPOINT,
+            access_key=config.MINIO_ACCESS_KEY,
+            secret_key=config.MINIO_SECRET_KEY,
+            secure=config.MINIO_SECURE
         )
         
         # Test connection
@@ -68,10 +73,10 @@ def main():
     except Exception as e:
         print(f"❌ Cannot connect to MinIO: {e}")
         print("\n💡 Make sure MinIO is running:")
-        print("   docker run -p 9000:9000 -p 9001:9001 \\")
-        print("     -e MINIO_ROOT_USER=admin \\")
-        print("     -e MINIO_ROOT_PASSWORD=admin123 \\")
-        print("     minio/minio server /data --console-address ':9001'")
+        print(f"   docker run -p 9000:9000 -p 9001:9001 \\")
+        print(f"     -e MINIO_ROOT_USER={config.MINIO_ACCESS_KEY} \\")
+        print(f"     -e MINIO_ROOT_PASSWORD={config.MINIO_SECRET_KEY} \\")
+        print(f"     minio/minio server /data --console-address ':9001'")
         return False
     
     # Setup MinIO

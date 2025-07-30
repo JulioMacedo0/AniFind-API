@@ -7,10 +7,11 @@ from pathlib import Path
 from pprint import pprint
 from create_preview import create_preview  
 from minio_client import upload_preview  
+from config import config
 
-INDEX_PATH = "indexes/global_index.faiss"
-METADATA_PATH = "indexes/metadata.pkl"
-TOP_K = 3
+INDEX_PATH = config.FAISS_INDEX_PATH
+METADATA_PATH = config.METADATA_PATH
+TOP_K = config.SEARCH_TOP_K
 
 # Global variables for persistent data loading
 _cached_index = None
@@ -26,8 +27,8 @@ def load_data():
     
     try:
         print("🔄 Loading FAISS index and metadata...")
-        _cached_index = faiss.read_index(INDEX_PATH)
-        with open(METADATA_PATH, "rb") as f:
+        _cached_index = faiss.read_index(str(INDEX_PATH))
+        with open(str(METADATA_PATH), "rb") as f:
             _cached_metadata = pickle.load(f)
         
         _is_loaded = True
@@ -87,8 +88,8 @@ def search(image_path, use_cached=False):
         index, metadata = load_data()
     else:
         # Original behavior: load fresh data each time
-        index = faiss.read_index(INDEX_PATH)
-        with open(METADATA_PATH, "rb") as f:
+        index = faiss.read_index(str(INDEX_PATH))
+        with open(str(METADATA_PATH), "rb") as f:
             metadata = pickle.load(f)
 
     img = Image.open(image_path).convert("RGB")

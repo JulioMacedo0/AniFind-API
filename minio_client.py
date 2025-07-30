@@ -2,15 +2,16 @@ from minio import Minio
 from minio.error import S3Error
 from pathlib import Path
 from datetime import timedelta
+from config import config
 
 MINIO_CLIENT = Minio(
-    "localhost:9000",
-    access_key="admin",
-    secret_key="admin123",
-    secure=False
+    config.MINIO_ENDPOINT,
+    access_key=config.MINIO_ACCESS_KEY,
+    secret_key=config.MINIO_SECRET_KEY,
+    secure=config.MINIO_SECURE
 )
 
-BUCKET_NAME = "previews"
+BUCKET_NAME = config.MINIO_BUCKET_NAME
 
 def ensure_bucket():
     """Create bucket if it doesn't exist."""
@@ -55,14 +56,14 @@ def upload_preview(local_path: Path, anime: str, filename: str) -> str:
     else:
         print(f"[📦] Already exists on MinIO: {object_name}")
     
-    # Generate presigned URL (valid for 24 hours)
+    # Generate presigned URL (valid for configured hours)
     try:
         presigned_url = MINIO_CLIENT.presigned_get_object(
             BUCKET_NAME, 
             object_name, 
-            expires=timedelta(hours=24)
+            expires=timedelta(hours=config.PREVIEW_URL_EXPIRES_HOURS)
         )
-        print(f"[🔗] Generated presigned URL (valid for 24h)")
+        print(f"[🔗] Generated presigned URL (valid for {config.PREVIEW_URL_EXPIRES_HOURS}h)")
         return presigned_url
     except Exception as e:
         print(f"[❌] Error generating presigned URL: {e}")
