@@ -1,6 +1,7 @@
 import subprocess
 from pathlib import Path
 import os
+import time
 
 PREVIEW_DIR = Path("previews")
 PREVIEW_DURATION = 5  # segundos
@@ -22,6 +23,11 @@ def create_preview(video_path: str, second: float) -> Path:
         return output_path
 
     print(f"[🎬] Creating preview: {output_path}")
+    print(f"[⏱️] Starting FFmpeg generation...")
+    
+    # Measure preview generation time
+    generation_start_time = time.time()
+    
     cmd = [
         "ffmpeg",
         "-ss", str(start),
@@ -34,5 +40,23 @@ def create_preview(video_path: str, second: float) -> Path:
         str(output_path)
     ]
 
-    subprocess.run(cmd, check=True)
+    try:
+        subprocess.run(cmd, check=True)
+        generation_end_time = time.time()
+        generation_duration = generation_end_time - generation_start_time
+        
+        # Get output file size for reporting
+        if output_path.exists():
+            output_size_mb = output_path.stat().st_size / (1024 * 1024)
+            print(f"[✅] Preview generation completed: {output_path}")
+            print(f"[⏱️] Generation time: {generation_duration:.2f}s | Output size: {output_size_mb:.1f}MB")
+        else:
+            print(f"[❌] Preview file not created: {output_path}")
+            
+    except subprocess.CalledProcessError as e:
+        generation_end_time = time.time()
+        generation_duration = generation_end_time - generation_start_time
+        print(f"[❌] FFmpeg failed after {generation_duration:.2f}s: {e}")
+        raise
+    
     return output_path

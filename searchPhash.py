@@ -5,6 +5,7 @@ from PIL import Image
 import imagehash
 from pathlib import Path
 from pprint import pprint
+import time
 from create_preview import create_preview  
 from minio_client import upload_preview  
 from config import config
@@ -84,6 +85,8 @@ def search(image_path, use_cached=False):
     Returns:
         Dictionary with search results
     """
+    search_start_time = time.time()
+    
     if use_cached:
         index, metadata = load_data()
     else:
@@ -92,13 +95,24 @@ def search(image_path, use_cached=False):
         with open(str(METADATA_PATH), "rb") as f:
             metadata = pickle.load(f)
 
+    # Measure hash calculation time
+    hash_start_time = time.time()
     img = Image.open(image_path).convert("RGB")
     ph = str(imagehash.phash(img))
     dh = str(imagehash.dhash(img))
     ah = str(imagehash.average_hash(img))
     query_vec = hashes_to_vector(ph, dh, ah)
+    hash_end_time = time.time()
+    hash_duration = hash_end_time - hash_start_time
 
+    # Measure FAISS search time
+    faiss_start_time = time.time()
     D, I = index.search(query_vec, TOP_K)
+    faiss_end_time = time.time()
+    faiss_duration = faiss_end_time - faiss_start_time
+
+    print(f"[⏱️] Hash calculation time: {hash_duration:.3f}s")
+    print(f"[⏱️] FAISS search time: {faiss_duration:.3f}s")
 
     results = []
     top_result = None
@@ -127,20 +141,35 @@ def search(image_path, use_cached=False):
 
         if rank == 0:
             try:
+                print(f"[🎬] Starting preview generation for top result...")
+                preview_start_time = time.time()
+                
                 preview_path = create_preview(
                     str(video_full_path), meta["second"]
                 )
                 # Use cleaned anime name for folder
                 anime_folder = clean_anime_name(meta["anime"]).replace(" ", "_")
                 preview_url = upload_preview(preview_path, anime_folder, preview_path.name)
+                
+                preview_end_time = time.time()
+                preview_total_duration = preview_end_time - preview_start_time
+                
                 result["preview_video"] = preview_url
+                print(f"[⏱️] Total preview process time: {preview_total_duration:.2f}s")
+                
             except Exception as preview_error:
-                print(f"Warning: Could not generate preview: {preview_error}")
+                preview_end_time = time.time()
+                preview_total_duration = preview_end_time - preview_start_time
+                print(f"Warning: Could not generate preview after {preview_total_duration:.2f}s: {preview_error}")
                 result["preview_video"] = None
             
             top_result = result
 
         results.append(result)
+
+    search_end_time = time.time()
+    total_search_duration = search_end_time - search_start_time
+    print(f"[⏱️] Total search operation time: {total_search_duration:.2f}s")
 
     return {
         "top_result": top_result,
