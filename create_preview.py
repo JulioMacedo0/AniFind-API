@@ -30,6 +30,7 @@ def create_preview(video_path: str, second: float) -> Path:
     
     cmd = [
         "ffmpeg",
+        "-loglevel", "error",  # Only show errors, suppress info/debug
         "-ss", str(start),
         "-i", str(input_path),
         "-t", str(PREVIEW_DURATION),
@@ -41,7 +42,7 @@ def create_preview(video_path: str, second: float) -> Path:
     ]
 
     try:
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, stderr=subprocess.DEVNULL)
         generation_end_time = time.time()
         generation_duration = generation_end_time - generation_start_time
         
