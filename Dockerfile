@@ -1,42 +1,50 @@
-FROM python:3.13-slim
+# Use official uv image with Python 3.13
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
-# Install system dependencies as root
+# Install system dependencies
 RUN apt-get update && \
-    apt-get install -y ffmpeg curl && \
+    apt-get install -y --no-install-recommends ffmpeg curl && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Install uv as root
-RUN pip install uv
-
-# Create app directory and set permissions
+# Create app directory
 WORKDIR /app
 
-# Copy project files
+# Copy dependency files first for better layer caching
 COPY pyproject.toml uv.lock ./
 
-# Install Python dependencies
-RUN uv sync --no-dev
+# Install dependencies only (not the project itself)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-install-project
 
-# Create non-root user
-RUN groupadd -r appuser --gid 1000 && useradd -r -g appuser --uid 1000 appuser
+# Create non-root user with specific UID/GID and home directory
+RUN groupadd -r appuser --gid 1000 && \
+    useradd -r -g appuser --uid 1000 --create-home appuser
 
 # Copy application code
 COPY . .
 
-# Create necessary directories and set permissions
-RUN mkdir -p /app/checkpoints /app/indexes /app/previews /app/videos && \
+# Install project in production mode and set up directories
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked && \
+    mkdir -p /app/checkpoints /app/indexes /app/previews /app/videos && \
     mkdir -p /home/appuser/.cache && \
     chown -R appuser:appuser /app /home/appuser
 
 # Switch to non-root user
 USER appuser
 
+# Set environment variables for production
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV UV_CACHE_DIR=/home/appuser/.cache/uv
+ENV PATH="/app/.venv/bin:$PATH"
+
 # Expose port
 EXPOSE 8000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Run the application
