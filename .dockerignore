@@ -1,0 +1,78 @@
+# Python cache and virtual environments
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Git and version control
+.git/
+.gitignore
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Docker related
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Documentation and README
+README.md
+*.md
+
+# Test files and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Environment files (will be set via docker-compose)
+.env*
+
+# Local data directories (will be mounted as volumes)
+data/
+checkpoints/
+indexes/
+previews/
+videos/
+
+# Temporary files
+*.tmp
+*.log
+
+# MinIO data
+minio_data/
+
+# Validation and setup scripts
+validate-docker.py
