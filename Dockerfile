@@ -19,7 +19,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --no-dev
 
 # Create non-root user
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+RUN groupadd -r appuser --gid 1000 && useradd -r -g appuser --uid 1000 appuser
 
 # Copy application code
 COPY . .
