@@ -37,8 +37,3 @@ services:
       - VIDEO_PROCESSING_FPS=${VIDEO_PROCESSING_FPS:-6}
       - VIDEO_PROCESSING_PIX_FMT=${VIDEO_PROCESSING_PIX_FMT:-rgb24}
     restart: unless-stopped
-    depends_on:
-      - redis
-
-volumes:
-  redis_data:
