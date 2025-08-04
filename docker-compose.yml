@@ -1,6 +1,21 @@
 version: "3.8"
 
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: anifind-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --requirepass dev123456
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "dev123456", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   anifind-api:
     build: .
     container_name: anifind-api
@@ -24,6 +39,11 @@ services:
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
       - MINIO_SECURE=${MINIO_SECURE:-true}
       - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-previews}
+      # Redis Configuration
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_DB=${REDIS_DB:-0}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-dev123456}
       # Data Paths (container paths)
       - FAISS_INDEX_PATH=${FAISS_INDEX_PATH:-/app/indexes/global_index.faiss}
       - METADATA_PATH=${METADATA_PATH:-/app/indexes/metadata.pkl}
@@ -36,3 +56,8 @@ services:
       - VIDEO_PROCESSING_FPS=${VIDEO_PROCESSING_FPS:-6}
       - VIDEO_PROCESSING_PIX_FMT=${VIDEO_PROCESSING_PIX_FMT:-rgb24}
     restart: unless-stopped
+    depends_on:
+      - redis
+
+volumes:
+  redis_data:
