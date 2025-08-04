@@ -17,8 +17,7 @@ class SearchResult(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    top_result: Optional[SearchResult]
-    all_results: List[SearchResult]
+    reseult: Optional[SearchResult]
     preview_url: Optional[str] = None
 
 
