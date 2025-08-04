@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   redis:
@@ -18,13 +18,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    networks:
-      - anime-network
 
 volumes:
   redis_data:
     driver: local
-
-networks:
-  anime-network:
-    external: true
