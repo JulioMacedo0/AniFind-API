@@ -69,7 +69,8 @@ class Config:
     VIDEO_BASE_DIR = get_path_env('VIDEO_BASE_DIR', 'test')
     
     # === SEARCH CONFIGURATION ===
-    SEARCH_TOP_K = get_int_env('SEARCH_TOP_K', 3)
+    SEARCH_TOP_K = get_int_env('SEARCH_TOP_K', 1)  # Always search for 1 result
+    MINIMUM_SIMILARITY = get_float_env('MINIMUM_SIMILARITY', 75.0)  # Minimum similarity threshold
     
     # === VIDEO PROCESSING ===
     VIDEO_PROCESSING_WIDTH = get_int_env('VIDEO_PROCESSING_WIDTH', 512)
@@ -93,6 +94,7 @@ class Config:
         print(f"   Metadata Path: {cls.METADATA_PATH}")
         print(f"   Video Base Dir: {cls.VIDEO_BASE_DIR}")
         print(f"   Search Top K: {cls.SEARCH_TOP_K}")
+        print(f"   Minimum Similarity: {cls.MINIMUM_SIMILARITY}%")
         print(f"   Preview URL Expires: {cls.PREVIEW_URL_EXPIRES_HOURS}h")
 
 

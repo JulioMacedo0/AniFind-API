@@ -12,7 +12,8 @@ from config import config
 
 INDEX_PATH = config.FAISS_INDEX_PATH
 METADATA_PATH = config.METADATA_PATH
-TOP_K = config.SEARCH_TOP_K
+TOP_K = 1  # Always search for only 1 result
+MINIMUM_SIMILARITY = config.MINIMUM_SIMILARITY
 
 # Global variables for persistent data loading
 _cached_index = None
@@ -114,66 +115,69 @@ def search(image_path, use_cached=False):
     print(f"[⏱️] Hash calculation time: {hash_duration:.3f}s")
     print(f"[⏱️] FAISS search time: {faiss_duration:.3f}s")
 
-    results = []
-    top_result = None
+    # Get the single result (TOP_K = 1)
+    if len(I[0]) == 0:
+        print("❌ No results found in index")
+        return None
+    
+    idx = I[0][0]
+    meta = metadata[idx]
+    dist = D[0][0]
+    similarity = float((1 - (dist / 64)) * 100)
+    
+    # Check minimum similarity threshold
+    if similarity < MINIMUM_SIMILARITY:
+        print(f"❌ Similarity {similarity:.1f}% is below minimum threshold of {MINIMUM_SIMILARITY}%")
+        return None
+    
+    print(f"✅ Found match with {similarity:.1f}% similarity (above {MINIMUM_SIMILARITY}% threshold)")
+
+    # Construct full video path from relative path stored in metadata
+    video_full_path = config.VIDEO_BASE_DIR / meta["preview_source_path"]
+    
+    result = {
+        "rank": 1,
+        "anime": clean_anime_name(meta["anime"]),
+        "season": meta["season"],
+        "episode": meta["episode"],
+        "timecode": meta["timecode"],
+        "second": meta["second"],
+        "similarity": similarity,
+        "anime_id": meta["anime_id"], 
+        "source_file": meta["source_file"],
+        "preview_source_path": str(video_full_path)
+    }
+
     preview_url = None
-
-    for rank, idx in enumerate(I[0]):
-        meta = metadata[idx]
-        dist = D[0][rank]
-        similarity = float((1 - (dist / 64)) * 100)
-
-        # Construct full video path from relative path stored in metadata
-        video_full_path = config.VIDEO_BASE_DIR / meta["preview_source_path"]
+    try:
+        print(f"[🎬] Starting preview generation for result...")
+        preview_start_time = time.time()
         
-        result = {
-            "rank": rank + 1,
-            "anime": clean_anime_name(meta["anime"]),
-            "season": meta["season"],
-            "episode": meta["episode"],
-            "timecode": meta["timecode"],
-            "second": meta["second"],
-            "similarity": similarity,
-            "anime_id": meta["anime_id"], 
-            "source_file": meta["source_file"],
-            "preview_source_path": str(video_full_path)
-        }
-
-        if rank == 0:
-            try:
-                print(f"[🎬] Starting preview generation for top result...")
-                preview_start_time = time.time()
-                
-                preview_path = create_preview(
-                    str(video_full_path), meta["second"]
-                )
-                # Use cleaned anime name for folder
-                anime_folder = clean_anime_name(meta["anime"]).replace(" ", "_")
-                preview_url = upload_preview(preview_path, anime_folder, preview_path.name)
-                
-                preview_end_time = time.time()
-                preview_total_duration = preview_end_time - preview_start_time
-                
-                result["preview_video"] = preview_url
-                print(f"[⏱️] Total preview process time: {preview_total_duration:.2f}s")
-                
-            except Exception as preview_error:
-                preview_end_time = time.time()
-                preview_total_duration = preview_end_time - preview_start_time
-                print(f"Warning: Could not generate preview after {preview_total_duration:.2f}s: {preview_error}")
-                result["preview_video"] = None
-            
-            top_result = result
-
-        results.append(result)
+        preview_path = create_preview(
+            str(video_full_path), meta["second"]
+        )
+        # Use cleaned anime name for folder
+        anime_folder = clean_anime_name(meta["anime"]).replace(" ", "_")
+        preview_url = upload_preview(preview_path, anime_folder, preview_path.name)
+        
+        preview_end_time = time.time()
+        preview_total_duration = preview_end_time - preview_start_time
+        
+        result["preview_video"] = preview_url
+        print(f"[⏱️] Total preview process time: {preview_total_duration:.2f}s")
+        
+    except Exception as preview_error:
+        preview_end_time = time.time()
+        preview_total_duration = preview_end_time - preview_start_time
+        print(f"Warning: Could not generate preview after {preview_total_duration:.2f}s: {preview_error}")
+        result["preview_video"] = None
 
     search_end_time = time.time()
     total_search_duration = search_end_time - search_start_time
     print(f"[⏱️] Total search operation time: {total_search_duration:.2f}s")
 
     return {
-        "top_result": top_result,
-        "all_results": results,
+        "result": result,
         "preview_url": preview_url
     }
 

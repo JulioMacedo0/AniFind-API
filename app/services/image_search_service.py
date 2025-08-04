@@ -53,6 +53,11 @@ class ImageSearchService:
         try:
             # Use cached data for better performance
             result = search(image_path, use_cached=True)
+            
+            # Check if result is None (no match or below minimum similarity)
+            if result is None:
+                raise FileNotFoundError("No matching anime episode found with sufficient similarity")
+                
             return result
         except Exception as e:
             raise Exception(f"Error performing search: {str(e)}")
