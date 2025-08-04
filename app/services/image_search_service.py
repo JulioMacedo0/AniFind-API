@@ -59,6 +59,9 @@ class ImageSearchService:
                 raise FileNotFoundError("No matching anime episode found with sufficient similarity")
                 
             return result
+        except FileNotFoundError:
+            # Re-raise FileNotFoundError to maintain 404 status
+            raise
         except Exception as e:
             raise Exception(f"Error performing search: {str(e)}")
     

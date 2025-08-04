@@ -56,8 +56,16 @@ async def search_anime_episode(
         return SearchResponse(**search_result)
         
     except FileNotFoundError as e:
+        # Handle cases: file not found or no anime match found
+        print(f"[404] Search returned no results: {str(e)}")
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        # Handle validation errors (bad image format, etc)
+        print(f"[400] Validation error: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        # Handle unexpected errors
+        print(f"[500] Internal error during search: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
     finally:
         # Clean up temporary file
