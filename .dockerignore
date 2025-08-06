@@ -58,7 +58,7 @@ htmlcov/
 .nox/
 
 # Environment files (will be set via docker-compose)
-.env*
+# .env* - Allow .env files to be copied for configuration loading
 
 # Local data directories (will be mounted as volumes)
 data/

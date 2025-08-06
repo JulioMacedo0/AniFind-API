@@ -28,7 +28,8 @@ services:
       - METADATA_PATH=${METADATA_PATH:-/app/indexes/metadata.pkl}
       - VIDEO_BASE_DIR=${VIDEO_BASE_DIR:-/app/videos}
       # Search Configuration
-      - SEARCH_TOP_K=${SEARCH_TOP_K:-3}
+      - SEARCH_TOP_K=${SEARCH_TOP_K:-1}
+      - MINIMUM_SIMILARITY=${MINIMUM_SIMILARITY:-75.0}
       - PREVIEW_URL_EXPIRES_HOURS=${PREVIEW_URL_EXPIRES_HOURS:-24}
       # Video Processing
       - VIDEO_PROCESSING_WIDTH=${VIDEO_PROCESSING_WIDTH:-512}
