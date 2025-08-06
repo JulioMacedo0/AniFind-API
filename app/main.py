@@ -1,8 +1,19 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import logging
 from app.routers import image_search
 from app.services.image_search_service import ImageSearchService
+
+
+# Configure logging to filter out health check requests
+class HealthCheckFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.getMessage().find("/health") == -1
+
+
+# Apply filter to uvicorn access logger
+logging.getLogger("uvicorn.access").addFilter(HealthCheckFilter())
 
 
 @asynccontextmanager
