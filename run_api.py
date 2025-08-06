@@ -13,6 +13,7 @@ Examples:
 
 import uvicorn
 import argparse
+import logging
 from pathlib import Path
 import sys
 from config import config
@@ -20,6 +21,19 @@ from config import config
 # Add current directory to Python path
 current_dir = Path(__file__).parent
 sys.path.insert(0, str(current_dir))
+
+
+# Configure logging to filter out health check requests
+class HealthCheckFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.getMessage().find("/health") == -1
+
+
+def setup_logging():
+    """Setup logging configuration to filter health checks."""
+    # Apply filter to uvicorn access logger
+    access_logger = logging.getLogger("uvicorn.access")
+    access_logger.addFilter(HealthCheckFilter())
 
 
 def main():
@@ -31,6 +45,9 @@ def main():
     
     args = parser.parse_args()
     
+    # Setup logging configuration
+    setup_logging()
+    
     print(f"🚀 Starting AniFind API...")
     print(f"📍 Host: {args.host}")
     print(f"🔌 Port: {args.port}")
@@ -38,6 +55,21 @@ def main():
     print(f"👥 Workers: {args.workers}")
     print(f"📖 Documentation: http://{args.host}:{args.port}/docs")
     print(f"🔍 Health check: http://{args.host}:{args.port}/health")
+    print(f"🔇 Health check logs: Filtered (clean logs)")
+    print("-" * 50)
+    
+    # Display environment configuration
+    print("⚙️  Environment Configuration:")
+    print(f"   🎯 Search Results: {config.SEARCH_TOP_K} result(s)")
+    print(f"   📊 Minimum Similarity: {config.MINIMUM_SIMILARITY}%")
+    print(f"   🗂️  FAISS Index: {config.FAISS_INDEX_PATH}")
+    print(f"   📋 Metadata Path: {config.METADATA_PATH}")
+    print(f"   🎬 Video Base Dir: {config.VIDEO_BASE_DIR}")
+    print(f"   ☁️  MinIO Endpoint: {config.MINIO_ENDPOINT}")
+    print(f"   🪣 MinIO Bucket: {config.MINIO_BUCKET_NAME}")
+    print(f"   🔒 MinIO Secure: {config.MINIO_SECURE}")
+    print(f"   ⏱️  Preview Expires: {config.PREVIEW_URL_EXPIRES_HOURS}h")
+    print(f"   🎥 Video Processing: {config.VIDEO_PROCESSING_WIDTH}px, {config.VIDEO_PROCESSING_FPS}fps")
     print("-" * 50)
     
     uvicorn.run(
