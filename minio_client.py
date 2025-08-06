@@ -3,7 +3,12 @@ from minio.error import S3Error
 from pathlib import Path
 from datetime import timedelta
 import time
+import logging
 from config import config
+
+# Configure retry settings
+MAX_RETRIES = config.MINIO_MAX_RETRIES
+RETRY_DELAY = config.MINIO_RETRY_DELAY
 
 MINIO_CLIENT = Minio(
     config.MINIO_ENDPOINT,
@@ -15,19 +20,34 @@ MINIO_CLIENT = Minio(
 BUCKET_NAME = config.MINIO_BUCKET_NAME
 
 def ensure_bucket():
-    """Create bucket if it doesn't exist."""
-    if not MINIO_CLIENT.bucket_exists(BUCKET_NAME):
-        MINIO_CLIENT.make_bucket(BUCKET_NAME)
-        print(f"[✅] Bucket '{BUCKET_NAME}' created")
+    """Create bucket if it doesn't exist with retry logic."""
+    for attempt in range(MAX_RETRIES):
+        try:
+            if not MINIO_CLIENT.bucket_exists(BUCKET_NAME):
+                MINIO_CLIENT.make_bucket(BUCKET_NAME)
+                print(f"[✅] Bucket '{BUCKET_NAME}' created")
+            return
+        except S3Error as e:
+            print(f"[⚠️] Bucket check attempt {attempt + 1}/{MAX_RETRIES} failed: {e}")
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_DELAY * (attempt + 1))
+            else:
+                raise
 
 def minio_object_exists(object_name: str) -> bool:
-    try:
-        MINIO_CLIENT.stat_object(BUCKET_NAME, object_name)
-        return True
-    except S3Error as e:
-        if e.code == "NoSuchKey":
-            return False
-        raise
+    """Check if object exists in MinIO with retry logic."""
+    for attempt in range(MAX_RETRIES):
+        try:
+            MINIO_CLIENT.stat_object(BUCKET_NAME, object_name)
+            return True
+        except S3Error as e:
+            if e.code == "NoSuchKey":
+                return False
+            print(f"[⚠️] Object check attempt {attempt + 1}/{MAX_RETRIES} failed: {e}")
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_DELAY * (attempt + 1))
+            else:
+                raise
 
 def upload_preview(local_path: Path, anime: str, filename: str) -> str:
     """
@@ -48,48 +68,66 @@ def upload_preview(local_path: Path, anime: str, filename: str) -> str:
     if not minio_object_exists(object_name):
         print(f"[⬆️] Uploading: {local_path} → {object_name}")
         
-        # Measure upload time
-        upload_start_time = time.time()
-        MINIO_CLIENT.fput_object(
-            bucket_name=BUCKET_NAME,
-            object_name=object_name,
-            file_path=str(local_path),
-            content_type="video/mp4"
-        )
-        upload_end_time = time.time()
-        upload_duration = upload_end_time - upload_start_time
-        
-        # Get file size for upload rate calculation
-        file_size_mb = local_path.stat().st_size / (1024 * 1024)
-        upload_rate = file_size_mb / upload_duration if upload_duration > 0 else 0
-        
-        print(f"[✅] Upload completed: {object_name}")
-        print(f"[⏱️] Upload time: {upload_duration:.2f}s | Size: {file_size_mb:.1f}MB | Rate: {upload_rate:.1f}MB/s")
+        # Upload with retry logic
+        upload_success = False
+        for attempt in range(MAX_RETRIES):
+            try:
+                # Measure upload time
+                upload_start_time = time.time()
+                MINIO_CLIENT.fput_object(
+                    bucket_name=BUCKET_NAME,
+                    object_name=object_name,
+                    file_path=str(local_path),
+                    content_type="video/mp4"
+                )
+                upload_end_time = time.time()
+                upload_duration = upload_end_time - upload_start_time
+                
+                # Get file size for upload rate calculation
+                file_size_mb = local_path.stat().st_size / (1024 * 1024)
+                upload_rate = file_size_mb / upload_duration if upload_duration > 0 else 0
+                
+                print(f"[✅] Upload completed: {object_name}")
+                print(f"[⏱️] Upload time: {upload_duration:.2f}s | Size: {file_size_mb:.1f}MB | Rate: {upload_rate:.1f}MB/s")
+                upload_success = True
+                break
+                
+            except S3Error as e:
+                print(f"[⚠️] Upload attempt {attempt + 1}/{MAX_RETRIES} failed: {e}")
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(RETRY_DELAY * (attempt + 1))
+                else:
+                    raise Exception(f"Upload failed after {MAX_RETRIES} attempts: {e}")
     else:
         print(f"[📦] Already exists on MinIO: {object_name}")
     
-    # Generate presigned URL (valid for configured hours)
-    try:
-        url_start_time = time.time()
-        presigned_url = MINIO_CLIENT.presigned_get_object(
-            BUCKET_NAME, 
-            object_name, 
-            expires=timedelta(hours=config.PREVIEW_URL_EXPIRES_HOURS)
-        )
-        url_end_time = time.time()
-        url_duration = url_end_time - url_start_time
-        
-        print(f"[🔗] Generated presigned URL (valid for {config.PREVIEW_URL_EXPIRES_HOURS}h)")
-        print(f"[⏱️] URL generation time: {url_duration:.3f}s")
-        return presigned_url
-    except Exception as e:
-        print(f"[❌] Error generating presigned URL: {e}")
-        raise
+    # Generate presigned URL with retry logic
+    for attempt in range(MAX_RETRIES):
+        try:
+            url_start_time = time.time()
+            presigned_url = MINIO_CLIENT.presigned_get_object(
+                BUCKET_NAME, 
+                object_name, 
+                expires=timedelta(hours=config.PREVIEW_URL_EXPIRES_HOURS)
+            )
+            url_end_time = time.time()
+            url_duration = url_end_time - url_start_time
+            
+            print(f"[🔗] Generated presigned URL (valid for {config.PREVIEW_URL_EXPIRES_HOURS}h)")
+            print(f"[⏱️] URL generation time: {url_duration:.3f}s")
+            return presigned_url
+            
+        except S3Error as e:
+            print(f"[⚠️] URL generation attempt {attempt + 1}/{MAX_RETRIES} failed: {e}")
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_DELAY * (attempt + 1))
+            else:
+                raise Exception(f"Presigned URL generation failed after {MAX_RETRIES} attempts: {e}")
 
 
 def get_presigned_url(object_name: str, expires_hours: int = 24) -> str:
     """
-    Generate presigned URL for an object in MinIO.
+    Generate presigned URL for an object in MinIO with retry logic.
     
     Args:
         object_name: Object name in the bucket
@@ -98,13 +136,17 @@ def get_presigned_url(object_name: str, expires_hours: int = 24) -> str:
     Returns:
         Presigned URL valid for the specified time
     """
-    try:
-        return MINIO_CLIENT.presigned_get_object(
-            BUCKET_NAME, 
-            object_name, 
-            expires=timedelta(hours=expires_hours)
-        )
-    except Exception as e:
-        print(f"[❌] Error generating presigned URL: {e}")
-        raise
+    for attempt in range(MAX_RETRIES):
+        try:
+            return MINIO_CLIENT.presigned_get_object(
+                BUCKET_NAME, 
+                object_name, 
+                expires=timedelta(hours=expires_hours)
+            )
+        except S3Error as e:
+            print(f"[⚠️] Get URL attempt {attempt + 1}/{MAX_RETRIES} failed: {e}")
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_DELAY * (attempt + 1))
+            else:
+                raise Exception(f"Presigned URL generation failed after {MAX_RETRIES} attempts: {e}")
 

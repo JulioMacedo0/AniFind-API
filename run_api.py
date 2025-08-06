@@ -68,6 +68,7 @@ def main():
     print(f"   ☁️  MinIO Endpoint: {config.MINIO_ENDPOINT}")
     print(f"   🪣 MinIO Bucket: {config.MINIO_BUCKET_NAME}")
     print(f"   🔒 MinIO Secure: {config.MINIO_SECURE}")
+    print(f"   🔄 MinIO Retries: {config.MINIO_MAX_RETRIES} (delay: {config.MINIO_RETRY_DELAY}s)")
     print(f"   ⏱️  Preview Expires: {config.PREVIEW_URL_EXPIRES_HOURS}h")
     print(f"   🎥 Video Processing: {config.VIDEO_PROCESSING_WIDTH}px, {config.VIDEO_PROCESSING_FPS}fps")
     print("-" * 50)

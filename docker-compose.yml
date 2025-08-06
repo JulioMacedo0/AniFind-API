@@ -22,6 +22,8 @@ services:
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
       - MINIO_SECURE=${MINIO_SECURE:-true}
       - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-previews}
+      - MINIO_MAX_RETRIES=${MINIO_MAX_RETRIES:-3}
+      - MINIO_RETRY_DELAY=${MINIO_RETRY_DELAY:-1.0}
 
       # Data Paths (container paths)
       - FAISS_INDEX_PATH=${FAISS_INDEX_PATH:-/app/indexes/global_index.faiss}

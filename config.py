@@ -55,6 +55,8 @@ class Config:
     MINIO_SECRET_KEY = os.getenv('MINIO_SECRET_KEY', 'admin123')
     MINIO_SECURE = get_bool_env('MINIO_SECURE', False)
     MINIO_BUCKET_NAME = os.getenv('MINIO_BUCKET_NAME', 'previews')
+    MINIO_MAX_RETRIES = get_int_env('MINIO_MAX_RETRIES', 3)
+    MINIO_RETRY_DELAY = get_float_env('MINIO_RETRY_DELAY', 1.0)
     
     # === API CONFIGURATION ===
     API_HOST = os.getenv('API_HOST', '127.0.0.1')
